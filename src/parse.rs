@@ -64,7 +64,7 @@ impl Node {
         return node;
     }
     
-    // primary -> num
+    // primary -> num 
     fn primary(tokens: &mut tokenize::TokenGroup) -> Self {
         Self {
             kind: NodeKind::NUM(tokens.get_num()),

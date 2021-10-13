@@ -1,26 +1,23 @@
 #[derive(PartialEq)]
-enum TokenKind {
+enum TokenKind<'a> {
     NUM(u64),
-    OPERA,
+    OPERA(&'a str),
 }
 struct Token<'a> {
-    kind: TokenKind,
-    chara: &'a str,
+    kind: TokenKind<'a>,
 }
 
 impl<'a> Token<'a> {
 
     fn new_opera(chara: &'a str) -> Self {
         Self {
-            kind: TokenKind::OPERA,
-            chara: chara,
+            kind: TokenKind::OPERA(chara),
         }
     }
 
     fn new_num(value: u64) -> Self {
         Self {
             kind: TokenKind::NUM(value),
-            chara: "",
         }
     }
 }
@@ -81,19 +78,28 @@ impl<'a> TokenGroup<'a> {
     }
 
     pub fn is_equal(&mut self, chara: &str) -> bool {
-        if !self.is_end() && self.tokens[self.point].kind == TokenKind::OPERA && self.tokens[self.point].chara == chara {
-            self.point += 1;
-            return true;
+        if !self.is_end() {
+            if let TokenKind::OPERA(opera) = self.tokens[self.point].kind {
+                if opera == chara {
+                    self.point += 1;
+                    return true;
+                }
+            } 
         }
         return false;
     }
 
     pub fn expected(&mut self, chara: &str) {
-        if self.is_end() || self.tokens[self.point].kind != TokenKind::OPERA || self.tokens[self.point].chara != chara {
-            eprintln!("{} is expected", chara);
-            std::process::exit(1);
+        if !self.is_end() {
+            if let TokenKind::OPERA(opera) = self.tokens[self.point].kind {
+                if opera == chara {
+                    self.point += 1;
+                    return;
+                }
+            } 
         }
-        self.point += 1;
+        eprintln!("{} is expected", chara);
+        std::process::exit(1);
     }
 
     pub fn get_num(&mut self) -> u64 {
