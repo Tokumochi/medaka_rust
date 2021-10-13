@@ -69,6 +69,7 @@ impl<'a> TokenGroup<'a> {
                 continue;
             }
     
+            eprintln!("invalid expression");
             std::process::exit(1);
         }
     
@@ -89,21 +90,20 @@ impl<'a> TokenGroup<'a> {
 
     pub fn expected(&mut self, chara: &str) {
         if self.is_end() || self.tokens[self.point].kind != TokenKind::OPERA || self.tokens[self.point].chara != chara {
+            eprintln!("{} is expected", chara);
             std::process::exit(1);
         }
         self.point += 1;
     }
 
     pub fn get_num(&mut self) -> u64 {
-        if self.is_end() {
-            std::process::exit(1);
+        if !self.is_end() {
+            if let TokenKind::NUM(value) = self.tokens[self.point].kind {
+                self.point += 1;
+                return value;
+            }
         }
-
-        if let TokenKind::NUM(value) = self.tokens[self.point].kind {
-            self.point += 1;
-            return value;
-        } else {
-            std::process::exit(1);
-        }
+        eprintln!("number is expected");    
+        std::process::exit(1);
     }
 }

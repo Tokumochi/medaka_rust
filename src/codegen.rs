@@ -10,11 +10,17 @@ pub fn gen_expr<'a>(node: &Node, context: &'a Context, builder: &'a Builder) -> 
 
     let lhs = match &node.lhs {
         Some(node) => gen_expr(&node, context, builder),
-        None => std::process::exit(1),
+        None => {
+            eprintln!("What's happening in lhs!?");
+            std::process::exit(1);
+        },
     };
     let rhs = match &node.rhs {
         Some(node) => gen_expr(&node, context, builder),
-        None => std::process::exit(1),
+        None => {
+            eprintln!("What's happening in rhs!?");
+            std::process::exit(1);
+        },
     };
 
     match &node.kind {
@@ -22,6 +28,9 @@ pub fn gen_expr<'a>(node: &Node, context: &'a Context, builder: &'a Builder) -> 
         NodeKind::SUB => builder.build_int_nsw_sub(lhs, rhs, ""),
         NodeKind::MUL => builder.build_int_nsw_mul(lhs, rhs, ""),
         NodeKind::DIV => builder.build_int_unsigned_div(lhs, rhs, ""),
-        _ => std::process::exit(1),
+        _ => {
+            eprintln!("What's happening in node!?");
+            std::process::exit(1);
+        },
     }
 }
