@@ -15,13 +15,15 @@ assert() {
     fi
 }
 
-assert 0 0
-assert 42 42
-assert 5 2+3
-assert 4 11-7
-assert 26 5+112-91
-assert 10 5*2
-assert 4 20/5
-assert 11 3+2*4
+assert 0 "0"
+assert 42 "42"
+assert 5 "2+3"
+assert 4 "11-7"
+assert 26 "5+112-91"
+assert 10 "5*2"
+assert 4 "20/5"
+assert 11 "3+2*4"
+assert 25 "5*(2+3)"
+assert 35 "7*(3+4/2)"
 
 echo OK 

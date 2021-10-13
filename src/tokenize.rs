@@ -44,7 +44,7 @@ impl<'a> TokenGroup<'a> {
         while p < code.len() {
             let c = &code[p .. p + 1];
     
-            if c == "+" || c == "-" || c == "*" || c == "/" {
+            if c == "+" || c == "-" || c == "*" || c == "/" || c == "(" || c == ")" {
                 tokens.push(Token::new_opera(c));
                 p += 1;
                 continue;

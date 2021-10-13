@@ -64,8 +64,14 @@ impl Node {
         return node;
     }
     
-    // primary -> num 
+    // primary -> "(" expr ")" | num
     fn primary(tokens: &mut tokenize::TokenGroup) -> Self {
+        if tokens.is_equal("(") {
+            let node = Node::expr(tokens);
+            tokens.expected(")");
+            return node;
+        }
+
         Self {
             kind: NodeKind::NUM(tokens.get_num()),
             lhs: None,
