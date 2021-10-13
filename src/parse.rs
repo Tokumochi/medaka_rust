@@ -51,11 +51,11 @@ impl Node {
         let mut node = Node::primary(tokens);
         loop {
             if tokens.is_equal("*") {
-                node = Node::new_both_hands(NodeKind::MUL, node, Node::mul(tokens));
+                node = Node::new_both_hands(NodeKind::MUL, node, Node::primary(tokens));
                 continue;
             }
             if tokens.is_equal("/") {
-                node = Node::new_both_hands(NodeKind::DIV, node, Node::mul(tokens));
+                node = Node::new_both_hands(NodeKind::DIV, node, Node::primary(tokens));
                 continue;
             }
             break;
