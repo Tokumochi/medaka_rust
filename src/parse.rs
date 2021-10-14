@@ -1,10 +1,12 @@
 use super::tokenize;
 
+#[derive(PartialEq)]
 pub enum NodeKind {
     ADD,
     SUB,
     MUL,
     DIV,
+    NEG,
     NUM(u64),
 }
 
@@ -21,6 +23,14 @@ impl Node {
             kind: kind,
             lhs: Some(Box::new(lhs)),
             rhs: Some(Box::new(rhs)),
+        }
+    }
+
+    fn new_one_hand(kind: NodeKind, lhs: Self) -> Self {
+        Self {
+            kind: kind,
+            lhs: Some(Box::new(lhs)),
+            rhs: None,
         }
     }
 
@@ -46,22 +56,33 @@ impl Node {
         return node;
     }
     
-    // mul -> primary ("*" primary | "/" primary)*
+    // mul -> unary ("*" unary | "/" unary)*
     fn mul(tokens: &mut tokenize::TokenGroup) -> Self {
-        let mut node = Node::primary(tokens);
+        let mut node = Node::unary(tokens);
         loop {
             if tokens.is_equal("*") {
-                node = Node::new_both_hands(NodeKind::MUL, node, Node::primary(tokens));
+                node = Node::new_both_hands(NodeKind::MUL, node, Node::unary(tokens));
                 continue;
             }
             if tokens.is_equal("/") {
-                node = Node::new_both_hands(NodeKind::DIV, node, Node::primary(tokens));
+                node = Node::new_both_hands(NodeKind::DIV, node, Node::unary(tokens));
                 continue;
             }
             break;
         }
 
         return node;
+    }
+
+    // unary -> ("+" | "-") unary | primary
+    fn unary(tokens: &mut tokenize::TokenGroup) -> Self {
+        if tokens.is_equal("+") {
+            return Node::unary(tokens);
+        }
+        if tokens.is_equal("-") {
+            return Node::new_one_hand(NodeKind::NEG, Node::unary(tokens));
+        }
+        return Node::primary(tokens);
     }
     
     // primary -> "(" expr ")" | num

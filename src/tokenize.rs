@@ -1,4 +1,3 @@
-#[derive(PartialEq)]
 enum TokenKind<'a> {
     NUM(u64),
     OPERA(&'a str),

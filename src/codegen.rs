@@ -8,6 +8,17 @@ pub fn gen_expr<'a>(node: &Node, context: &'a Context, builder: &'a Builder) -> 
         return context.i32_type().const_int(value, false);
     }
 
+    if node.kind == NodeKind::NEG {
+        let lhs = match &node.lhs {
+            Some(node) => gen_expr(&node, context, builder),
+            None => {
+                eprintln!("What's happening in lhs!?");
+                std::process::exit(1);
+            },
+        };
+        return builder.build_int_neg(lhs, "");
+    }
+
     let lhs = match &node.lhs {
         Some(node) => gen_expr(&node, context, builder),
         None => {
