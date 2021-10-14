@@ -1,6 +1,6 @@
 enum TokenKind<'a> {
-    NUM(u64),
-    OPERA(&'a str),
+    Num(u64),
+    Opera(&'a str),
 }
 struct Token<'a> {
     kind: TokenKind<'a>,
@@ -10,13 +10,13 @@ impl<'a> Token<'a> {
 
     fn new_opera(chara: &'a str) -> Self {
         Self {
-            kind: TokenKind::OPERA(chara),
+            kind: TokenKind::Opera(chara),
         }
     }
 
     fn new_num(value: u64) -> Self {
         Self {
-            kind: TokenKind::NUM(value),
+            kind: TokenKind::Num(value),
         }
     }
 }
@@ -83,7 +83,7 @@ impl<'a> TokenGroup<'a> {
 
     pub fn is_equal(&mut self, chara: &str) -> bool {
         if !self.is_end() {
-            if let TokenKind::OPERA(opera) = self.tokens[self.point].kind {
+            if let TokenKind::Opera(opera) = self.tokens[self.point].kind {
                 if opera == chara {
                     self.point += 1;
                     return true;
@@ -95,7 +95,7 @@ impl<'a> TokenGroup<'a> {
 
     pub fn expected(&mut self, chara: &str) {
         if !self.is_end() {
-            if let TokenKind::OPERA(opera) = self.tokens[self.point].kind {
+            if let TokenKind::Opera(opera) = self.tokens[self.point].kind {
                 if opera == chara {
                     self.point += 1;
                     return;
@@ -108,7 +108,7 @@ impl<'a> TokenGroup<'a> {
 
     pub fn get_num(&mut self) -> u64 {
         if !self.is_end() {
-            if let TokenKind::NUM(value) = self.tokens[self.point].kind {
+            if let TokenKind::Num(value) = self.tokens[self.point].kind {
                 self.point += 1;
                 return value;
             }

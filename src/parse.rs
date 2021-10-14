@@ -1,36 +1,37 @@
 use super::tokenize;
 
-#[derive(PartialEq)]
+pub enum UnaryKind {
+    Neg,
+}
+
+pub enum BinaryKind {
+    Add,
+    Sub,
+    Mul,
+    Div,
+}
+
 pub enum NodeKind {
-    ADD,
-    SUB,
-    MUL,
-    DIV,
-    NEG,
-    NUM(u64),
+    Num(u64),
+    Unary(UnaryKind, Box<Node>),
+    Binary(BinaryKind, Box<Node>, Box<Node>),
 }
 
 pub struct Node {
     pub kind: NodeKind,
-    pub lhs: Option<Box<Node> >,
-    pub rhs: Option<Box<Node> >,
 }
 
 impl Node {
-
-    fn new_both_hands(kind: NodeKind, lhs: Self, rhs: Self) -> Self {
+    
+    fn new_unary_node(kind: UnaryKind, ohs: Self) -> Self {
         Self {
-            kind: kind,
-            lhs: Some(Box::new(lhs)),
-            rhs: Some(Box::new(rhs)),
+            kind: NodeKind::Unary(kind, Box::new(ohs)),
         }
     }
 
-    fn new_one_hand(kind: NodeKind, lhs: Self) -> Self {
+    fn new_binary_node(kind: BinaryKind, lhs: Self, rhs: Self) -> Self {
         Self {
-            kind: kind,
-            lhs: Some(Box::new(lhs)),
-            rhs: None,
+            kind: NodeKind::Binary(kind, Box::new(lhs), Box::new(rhs)),
         }
     }
 
@@ -43,11 +44,11 @@ impl Node {
         let mut node = Node::mul(tokens);
         loop {
             if tokens.is_equal("+") {
-                node = Node::new_both_hands(NodeKind::ADD, node, Node::mul(tokens));
+                node = Node::new_binary_node(BinaryKind::Add, node, Node::mul(tokens));
                 continue;
             }
             if tokens.is_equal("-") {
-                node = Node::new_both_hands(NodeKind::SUB, node, Node::mul(tokens));
+                node = Node::new_binary_node(BinaryKind::Sub, node, Node::mul(tokens));
                 continue;
             }
             break;
@@ -61,11 +62,11 @@ impl Node {
         let mut node = Node::unary(tokens);
         loop {
             if tokens.is_equal("*") {
-                node = Node::new_both_hands(NodeKind::MUL, node, Node::unary(tokens));
+                node = Node::new_binary_node(BinaryKind::Mul, node, Node::unary(tokens));
                 continue;
             }
             if tokens.is_equal("/") {
-                node = Node::new_both_hands(NodeKind::DIV, node, Node::unary(tokens));
+                node = Node::new_binary_node(BinaryKind::Div, node, Node::unary(tokens));
                 continue;
             }
             break;
@@ -80,7 +81,7 @@ impl Node {
             return Node::unary(tokens);
         }
         if tokens.is_equal("-") {
-            return Node::new_one_hand(NodeKind::NEG, Node::unary(tokens));
+            return Node::new_unary_node(UnaryKind::Neg, Node::unary(tokens));
         }
         return Node::primary(tokens);
     }
@@ -94,9 +95,7 @@ impl Node {
         }
 
         Self {
-            kind: NodeKind::NUM(tokens.get_num()),
-            lhs: None,
-            rhs: None,
+            kind: NodeKind::Num(tokens.get_num()),
         }
     }
 }

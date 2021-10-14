@@ -1,47 +1,30 @@
 use inkwell::context::Context;
 use inkwell::builder::Builder;
 use inkwell::values::IntValue;
+use crate::parse::{BinaryKind, UnaryKind};
+
 use super::parse::{NodeKind, Node};
 
 pub fn gen_expr<'a>(node: &Node, context: &'a Context, builder: &'a Builder) -> IntValue<'a> {
-    if let NodeKind::NUM(value) = node.kind {
-        return context.i32_type().const_int(value, false);
-    }
-
-    if node.kind == NodeKind::NEG {
-        let lhs = match &node.lhs {
-            Some(node) => gen_expr(&node, context, builder),
-            None => {
-                eprintln!("What's happening in lhs!?");
-                std::process::exit(1);
-            },
-        };
-        return builder.build_int_neg(lhs, "");
-    }
-
-    let lhs = match &node.lhs {
-        Some(node) => gen_expr(&node, context, builder),
-        None => {
-            eprintln!("What's happening in lhs!?");
-            std::process::exit(1);
-        },
-    };
-    let rhs = match &node.rhs {
-        Some(node) => gen_expr(&node, context, builder),
-        None => {
-            eprintln!("What's happening in rhs!?");
-            std::process::exit(1);
-        },
-    };
 
     match &node.kind {
-        NodeKind::ADD => builder.build_int_nsw_add(lhs, rhs, ""),
-        NodeKind::SUB => builder.build_int_nsw_sub(lhs, rhs, ""),
-        NodeKind::MUL => builder.build_int_nsw_mul(lhs, rhs, ""),
-        NodeKind::DIV => builder.build_int_unsigned_div(lhs, rhs, ""),
-        _ => {
-            eprintln!("What's happening in node!?");
-            std::process::exit(1);
+        NodeKind::Num(value) => {
+            return context.i32_type().const_int(*value, false);
+        },
+        NodeKind::Unary(kind, ohs) => {
+            match kind {
+                UnaryKind::Neg => return builder.build_int_neg(gen_expr(&ohs, context, builder), ""),
+            }
+        },
+        NodeKind::Binary(kind, lhs, rhs) => {
+            let lhs = gen_expr(&lhs, context, builder);
+            let rhs = gen_expr(&rhs, context, builder);
+            match kind {
+                BinaryKind::Add => return builder.build_int_nsw_add(lhs, rhs, ""),
+                BinaryKind::Sub => return builder.build_int_nsw_sub(lhs, rhs, ""),
+                BinaryKind::Mul => return builder.build_int_nsw_mul(lhs, rhs, ""),
+                BinaryKind::Div => return builder.build_int_unsigned_div(lhs, rhs, ""),
+            }
         },
     }
 }
