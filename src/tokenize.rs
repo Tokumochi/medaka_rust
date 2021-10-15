@@ -1,3 +1,16 @@
+fn is_number(chara: &str) -> Option<char> {
+    let chara: char = chara.chars().next().unwrap();
+    if '0' <= chara && chara <= '9' {
+        return Some(chara);
+    }
+    return None;
+}
+
+fn is_alpha(chara: &str) -> bool {
+    let chara: char = chara.chars().next().unwrap();
+    return ('a' <= chara && chara <= 'z') || ('A' <= chara && chara <= 'Z');
+}
+
 enum TokenKind<'a> {
     Num(u64),
     Opera(&'a str),
@@ -8,15 +21,15 @@ struct Token<'a> {
 
 impl<'a> Token<'a> {
 
-    fn new_opera(chara: &'a str) -> Self {
-        Self {
-            kind: TokenKind::Opera(chara),
-        }
-    }
-
     fn new_num(value: u64) -> Self {
         Self {
             kind: TokenKind::Num(value),
+        }
+    }
+
+    fn new_opera(chara: &'a str) -> Self {
+        Self {
+            kind: TokenKind::Opera(chara),
         }
     }
 }
@@ -40,27 +53,30 @@ impl<'a> TokenGroup<'a> {
         };
         let mut p = 0;
     
-        while p < code.len() {
+        'tokenizer: while p < code.len() {
             let c = &code[p .. p + 1];
 
+            // Space
             if c == " " {
                 p += 1;
                 continue;
             }
     
-            if c == "+" || c == "-" || c == "*" || c == "/" || c == "(" || c == ")" {
+            // Operator
+            if c == "+" || c == "-" || c == "*" || c == "/" || c == "(" || c == ")" || c == ";" {
                 tokens.push(Token::new_opera(c));
                 p += 1;
                 continue;
             } 
     
-            if c == "0" || c == "1" || c == "2" || c == "3" || c == "4" ||
-               c == "5" || c == "6" || c == "7" || c == "8" || c == "9" {
-                let mut value: u64 = 0;
-                let chara: Vec<char> = code[p..].chars().collect();
-                for c in chara {
-                    if '0' <= c && c <= '9' {
-                        value = value * 10 + c as u64 - 48;
+            // Number
+            if let Some(num) = is_number(c) {
+                let mut value = num as u64 - 48;
+                p += 1;
+                while p < code.len() {
+                    let c = &code[p .. p + 1];
+                    if let Some(num) = is_number(c) {
+                        value = value * 10 + (num as u64 - 48);
                         p += 1;
                     } else {
                         break;
@@ -69,8 +85,32 @@ impl<'a> TokenGroup<'a> {
                 tokens.push(Token::new_num(value));
                 continue;
             }
+
+            // Keyword
+            if is_alpha(c) {
+                let start = p;
+                p += 1;
+                while p < code.len() {
+                    let c = &code[p .. p + 1];
+                    if is_alpha(c) {
+                        p += 1;
+                    } else if let Some(_) = is_number(c) {
+                        p += 1;
+                    } else {
+                        break;
+                    }
+                }
+
+                let keywords = ["return"];
+                for keyword in keywords {
+                    if &code[start .. p] == keyword {
+                        tokens.push(Token::new_opera(keyword));
+                        continue 'tokenizer;
+                    }
+                }
+            }
     
-            eprintln!("invalid expression");
+            eprintln!("invalid symbol");
             std::process::exit(1);
         }
     
@@ -88,7 +128,7 @@ impl<'a> TokenGroup<'a> {
                     self.point += 1;
                     return true;
                 }
-            } 
+            }
         }
         return false;
     }
@@ -106,14 +146,13 @@ impl<'a> TokenGroup<'a> {
         std::process::exit(1);
     }
 
-    pub fn get_num(&mut self) -> u64 {
+    pub fn is_number(&mut self) -> Option<u64> {
         if !self.is_end() {
             if let TokenKind::Num(value) = self.tokens[self.point].kind {
                 self.point += 1;
-                return value;
+                return Some(value);
             }
         }
-        eprintln!("number is expected");    
-        std::process::exit(1);
+        return None;
     }
 }

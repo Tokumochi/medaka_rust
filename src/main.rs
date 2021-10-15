@@ -5,7 +5,7 @@ mod codegen;
 use std::env;
 use inkwell::context::Context;
 use tokenize::TokenGroup;
-use parse::Node;
+use parse::Func;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -13,7 +13,7 @@ fn main() {
     let code: &str = args[1].as_str();
 
     let mut tokens = TokenGroup::new(code);
-    let node = Node::expr(&mut tokens);
+    let func = Func::new(&mut tokens);
 
     let context = Context::create();
     let module = context.create_module("top");
@@ -24,9 +24,7 @@ fn main() {
     let basic_block = context.append_basic_block(main_func, "");
     builder.position_at_end(basic_block);
 
-    let expr = codegen::gen_expr(&node, &context, &builder);
-
-    builder.build_return(Some(&expr));
+    codegen::codegen(func, &context, &builder);
 
     println!("{}", module.print_to_string().to_string());
 }
