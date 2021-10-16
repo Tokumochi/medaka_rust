@@ -70,11 +70,19 @@ impl<'a> TokenGroup<'a> {
             }
     
             // Operator
-            if c == "=" || c == "+" || c == "-" || c == "*" || c == "/" || c == "(" || c == ")" || c == ";" || c == ":" {
+            if p + 1 < code.len() {
+                let cc = &code[p .. p + 2];
+                if cc == "==" || cc == "!=" || cc == "<=" || cc == ">=" {
+                    tokens.push(Token::new_opera(cc));
+                    p += 2;
+                    continue;
+                }
+            }
+            if c == "=" || c == "<" || c == ">" || c == "+" || c == "-" || c == "*" || c == "/" || c == "(" || c == ")" || c == ";" || c == ":" {
                 tokens.push(Token::new_opera(c));
                 p += 1;
                 continue;
-            } 
+            }
     
             // Number
             if let Some(num) = is_number(c) {

@@ -1,6 +1,7 @@
 use inkwell::context::Context;
 use inkwell::builder::Builder;
 use inkwell::values::{IntValue, PointerValue, BasicValueEnum};
+use inkwell::IntPredicate::{EQ, NE, SLT, SLE};
 use crate::parse::{BinaryKind, UnaryKind};
 use super::parse::{ExprKind, Expr, StmtKind, Stmt, Func};
 
@@ -36,6 +37,10 @@ fn gen_expr<'a>(node: &Expr, locals: &Vec<PointerValue<'a> >, context: &'a Conte
             let lhs = gen_expr(&lhs, locals, context, builder);
             let rhs = gen_expr(&rhs, locals, context, builder);
             match kind {
+                BinaryKind::Equ => return builder.build_int_z_extend(builder.build_int_compare(EQ, lhs, rhs, ""), context.i32_type(), ""),
+                BinaryKind::Neq => return builder.build_int_z_extend(builder.build_int_compare(NE, lhs, rhs, ""), context.i32_type(), ""),
+                BinaryKind::Les => return builder.build_int_z_extend(builder.build_int_compare(SLT, lhs, rhs, ""), context.i32_type(), ""),
+                BinaryKind::Leq => return builder.build_int_z_extend(builder.build_int_compare(SLE, lhs, rhs, ""), context.i32_type(), ""),
                 BinaryKind::Add => return builder.build_int_nsw_add(lhs, rhs, ""),
                 BinaryKind::Sub => return builder.build_int_nsw_sub(lhs, rhs, ""),
                 BinaryKind::Mul => return builder.build_int_nsw_mul(lhs, rhs, ""),

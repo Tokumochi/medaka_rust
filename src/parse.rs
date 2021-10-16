@@ -40,6 +40,10 @@ pub enum UnaryKind {
 }
 
 pub enum BinaryKind {
+    Equ,
+    Neq,
+    Les,
+    Leq,
     Add,
     Sub,
     Mul,
@@ -89,13 +93,53 @@ impl Expr {
         Expr::assign(tokens, vars)
     }
 
-    // assign -> add ("=" add)?
+    // assign -> equality ("=" equality)?
     fn assign(tokens: &mut TokenGroup, vars: &VarGroup) -> Self {
-        let node = Expr::add(tokens, vars);
+        let node = Expr::equality(tokens, vars);
         if tokens.is_equal("=") {
-            return Expr::new_assign_node(node, Expr::add(tokens, vars));
+            return Expr::new_assign_node(node, Expr::equality(tokens, vars));
         }
         return node;
+    }
+
+    // equality -> relational ("==" relational | "!=" relational)*
+    fn equality(tokens: &mut TokenGroup, vars: &VarGroup) -> Self {
+        let mut node = Expr::relational(tokens, vars);
+        loop {
+            if tokens.is_equal("==") {
+                node = Expr::new_binary_node(BinaryKind::Equ, node, Expr::relational(tokens, vars));
+                continue;
+            }
+            if tokens.is_equal("!=") {
+                node = Expr::new_binary_node(BinaryKind::Neq, node, Expr::relational(tokens, vars));
+                continue;
+            }
+            return node;
+        }
+    }
+
+    // relational -> add ("<" add | "<=" add | ">" add | ">=" add)*
+    fn relational(tokens: &mut TokenGroup, vars: &VarGroup) -> Self {
+        let mut node = Expr::add(tokens, vars);
+        loop {
+            if tokens.is_equal("<") {
+                node = Expr::new_binary_node(BinaryKind::Les, node, Expr::add(tokens, vars));
+                continue;
+            }
+            if tokens.is_equal("<=") {
+                node = Expr::new_binary_node(BinaryKind::Leq, node, Expr::add(tokens, vars));
+                continue;
+            }
+            if tokens.is_equal(">") {
+                node = Expr::new_binary_node(BinaryKind::Les, Expr::add(tokens, vars), node);
+                continue;
+            }
+            if tokens.is_equal(">=") {
+                node = Expr::new_binary_node(BinaryKind::Leq, Expr::add(tokens, vars), node);
+                continue;
+            }
+            return node;
+        }
     }
     
     // add -> mul ("+" mul | "-" mul)*
