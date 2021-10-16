@@ -31,5 +31,6 @@ assert 17 "return 23---6;"
 assert 13 "return -10+23;"
 assert 12 "return 2+2*5; return 25;"
 assert 31 "52; return 31; 47;"
+assert 52 "dec chainsaw: i32 = 13; chainsaw = chainsaw * 4; return chainsaw;"
 
 echo OK 

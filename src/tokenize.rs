@@ -14,6 +14,7 @@ fn is_alpha(chara: &str) -> bool {
 enum TokenKind<'a> {
     Num(u64),
     Opera(&'a str),
+    Ident(&'a str),
 }
 struct Token<'a> {
     kind: TokenKind<'a>,
@@ -30,6 +31,12 @@ impl<'a> Token<'a> {
     fn new_opera(chara: &'a str) -> Self {
         Self {
             kind: TokenKind::Opera(chara),
+        }
+    }
+
+    fn new_ident(chara: &'a str) -> Self {
+        Self {
+            kind: TokenKind::Ident(chara),
         }
     }
 }
@@ -63,7 +70,7 @@ impl<'a> TokenGroup<'a> {
             }
     
             // Operator
-            if c == "+" || c == "-" || c == "*" || c == "/" || c == "(" || c == ")" || c == ";" {
+            if c == "=" || c == "+" || c == "-" || c == "*" || c == "/" || c == "(" || c == ")" || c == ";" || c == ":" {
                 tokens.push(Token::new_opera(c));
                 p += 1;
                 continue;
@@ -86,7 +93,7 @@ impl<'a> TokenGroup<'a> {
                 continue;
             }
 
-            // Keyword
+            // Keyword or Identifier
             if is_alpha(c) {
                 let start = p;
                 p += 1;
@@ -100,14 +107,15 @@ impl<'a> TokenGroup<'a> {
                         break;
                     }
                 }
-
-                let keywords = ["return"];
+                let keywords = ["dec", "i32", "return"];
                 for keyword in keywords {
                     if &code[start .. p] == keyword {
                         tokens.push(Token::new_opera(keyword));
                         continue 'tokenizer;
                     }
                 }
+                tokens.push(Token::new_ident(&code[start .. p]));
+                continue;
             }
     
             eprintln!("invalid symbol");
@@ -144,6 +152,16 @@ impl<'a> TokenGroup<'a> {
         }
         eprintln!("{} is expected", chara);
         std::process::exit(1);
+    }
+
+    pub fn is_ident(&mut self) -> Option<&str> {
+        if !self.is_end() {
+            if let TokenKind::Ident(name) = self.tokens[self.point].kind {
+                self.point += 1;
+                return Some(name);
+            }
+        }
+        return None;
     }
 
     pub fn is_number(&mut self) -> Option<u64> {

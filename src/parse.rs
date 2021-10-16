@@ -1,4 +1,39 @@
-use super::tokenize;
+use super::tokenize::TokenGroup;
+
+pub struct Var {
+    pub name: String,
+}
+
+impl Var {
+
+    fn new(name: &str) -> Self {
+        Self {
+            name: name.to_string(),
+        }
+    }
+}
+
+struct VarGroup {
+    locals: Vec<Var>,
+}
+
+impl VarGroup {
+
+    fn find_var(&self, name: &str) -> Option<usize> {
+        for (index, var) in self.locals.iter().enumerate() {
+            if var.name == name {
+                return Some(index);
+            }
+        }
+        return None;
+    }
+
+    fn new_local_var(&mut self, name: &str) -> usize {
+        let var = Var::new(name);
+        self.locals.push(var);
+        return self.locals.len() - 1;
+    }
+}
 
 pub enum UnaryKind {
     Neg,
@@ -13,6 +48,8 @@ pub enum BinaryKind {
 
 pub enum ExprKind {
     Num(u64),
+    Var(usize),
+    Assign(Box<Expr>, Box<Expr>),
     Unary(UnaryKind, Box<Expr>),
     Binary(BinaryKind, Box<Expr>, Box<Expr>),
 }
@@ -22,6 +59,18 @@ pub struct Expr {
 }
 
 impl Expr {
+
+    fn new_var_node(index: usize) -> Self {
+        Self {
+            kind: ExprKind::Var(index),
+        }
+    }
+
+    fn new_assign_node(lhs: Self, rhs: Self) -> Self {
+        Self {
+            kind: ExprKind::Assign(Box::new(lhs), Box::new(rhs)),
+        }
+    }
     
     fn new_unary_node(kind: UnaryKind, ohs: Self) -> Self {
         Self {
@@ -35,20 +84,30 @@ impl Expr {
         }
     }
 
-    fn expr(tokens: &mut tokenize::TokenGroup) -> Self {
-        Expr::add(tokens)
+    // expr -> assign
+    fn expr(tokens: &mut TokenGroup, vars: &VarGroup) -> Self {
+        Expr::assign(tokens, vars)
+    }
+
+    // assign -> add ("=" add)?
+    fn assign(tokens: &mut TokenGroup, vars: &VarGroup) -> Self {
+        let node = Expr::add(tokens, vars);
+        if tokens.is_equal("=") {
+            return Expr::new_assign_node(node, Expr::add(tokens, vars));
+        }
+        return node;
     }
     
     // add -> mul ("+" mul | "-" mul)*
-    fn add(tokens: &mut tokenize::TokenGroup) -> Self {
-        let mut node = Expr::mul(tokens);
+    fn add(tokens: &mut TokenGroup, vars: &VarGroup) -> Self {
+        let mut node = Expr::mul(tokens, vars);
         loop {
             if tokens.is_equal("+") {
-                node = Expr::new_binary_node(BinaryKind::Add, node, Expr::mul(tokens));
+                node = Expr::new_binary_node(BinaryKind::Add, node, Expr::mul(tokens, vars));
                 continue;
             }
             if tokens.is_equal("-") {
-                node = Expr::new_binary_node(BinaryKind::Sub, node, Expr::mul(tokens));
+                node = Expr::new_binary_node(BinaryKind::Sub, node, Expr::mul(tokens, vars));
                 continue;
             }
             return node;
@@ -56,15 +115,15 @@ impl Expr {
     }
     
     // mul -> unary ("*" unary | "/" unary)*
-    fn mul(tokens: &mut tokenize::TokenGroup) -> Self {
-        let mut node = Expr::unary(tokens);
+    fn mul(tokens: &mut TokenGroup, vars: &VarGroup) -> Self {
+        let mut node = Expr::unary(tokens, vars);
         loop {
             if tokens.is_equal("*") {
-                node = Expr::new_binary_node(BinaryKind::Mul, node, Expr::unary(tokens));
+                node = Expr::new_binary_node(BinaryKind::Mul, node, Expr::unary(tokens, vars));
                 continue;
             }
             if tokens.is_equal("/") {
-                node = Expr::new_binary_node(BinaryKind::Div, node, Expr::unary(tokens));
+                node = Expr::new_binary_node(BinaryKind::Div, node, Expr::unary(tokens, vars));
                 continue;
             }
             return node;
@@ -72,22 +131,31 @@ impl Expr {
     }
 
     // unary -> ("+" | "-") unary | primary
-    fn unary(tokens: &mut tokenize::TokenGroup) -> Self {
+    fn unary(tokens: &mut TokenGroup, vars: &VarGroup) -> Self {
         if tokens.is_equal("+") {
-            return Expr::unary(tokens);
+            return Expr::unary(tokens, vars);
         }
         if tokens.is_equal("-") {
-            return Expr::new_unary_node(UnaryKind::Neg, Expr::unary(tokens));
+            return Expr::new_unary_node(UnaryKind::Neg, Expr::unary(tokens, vars));
         }
-        return Expr::primary(tokens);
+        return Expr::primary(tokens, vars);
     }
     
-    // primary -> "(" expr ")" | num
-    fn primary(tokens: &mut tokenize::TokenGroup) -> Self {
+    // primary -> "(" expr ")" | ident | num
+    fn primary(tokens: &mut TokenGroup, vars: &VarGroup) -> Self {
         if tokens.is_equal("(") {
-            let node = Expr::expr(tokens);
+            let node = Expr::expr(tokens, vars);
             tokens.expected(")");
             return node;
+        }
+
+        if let Some(name) = tokens.is_ident() {
+            if let Some(index) = vars.find_var(name) {
+                return Expr::new_var_node(index);
+            } else {
+                eprintln!("The variable name \"{}\" doesn't exists.", name);
+                std::process::exit(1);
+            }
         }
 
         if let Some(num) = tokens.is_number() {
@@ -111,36 +179,67 @@ pub struct Stmt {
 }
 
 impl Stmt {
-    // stmt -> "return" expr ";" | expr_stmt
-    fn stmt(tokens: &mut tokenize::TokenGroup) -> Self {
+    // stmt -> "return" expr ";" | "dec" declaration | expr_stmt
+    fn stmt(tokens: &mut TokenGroup, vars: &mut VarGroup) -> Self {
         if tokens.is_equal("return") {
-            let node = Self { kind: StmtKind::Ret(Expr::expr(tokens)) };
+            let node = Self { kind: StmtKind::Ret(Expr::expr(tokens, vars)) };
             tokens.expected(";");
             return node;
         }
-        return Stmt::expr_stmt(tokens);
+
+        if tokens.is_equal("dec") {
+            return Stmt::declaration(tokens, vars);
+        }
+
+        return Stmt::expr_stmt(tokens, vars);
     }
 
-    // expr_stmt -> expr ";"
-    fn expr_stmt(tokens: &mut tokenize::TokenGroup) -> Self {
-        let node = Self { kind: StmtKind::ExprStmt(Expr::expr(tokens)) };
+    // declaration -> ident ":" "i32" "=" expr ";"
+    fn declaration(tokens: &mut TokenGroup, vars: &mut VarGroup) -> Self {
+        if let Some(name) = tokens.is_ident() {
+            if let Some(_) = vars.find_var(name) {
+                eprintln!("The variable name \"{}\" already exists.", name);
+                std::process::exit(1);
+            } else {
+                let var_node = Expr::new_var_node(vars.new_local_var(name));
+                tokens.expected(":");
+                tokens.expected("i32");
+                tokens.expected("=");
+
+                let node = Self {
+                    kind: StmtKind::ExprStmt(Expr::new_assign_node(var_node, Expr::expr(tokens, vars))),
+                };
+                tokens.expected(";");
+                return node;
+            }
+        }
+        eprintln!("ident is expected");
+        std::process::exit(1);
+    }
+
+    // expr_stmt ->　expr ";"
+    fn expr_stmt(tokens: &mut TokenGroup, vars: &mut VarGroup) -> Self {
+        let node = Self { kind: StmtKind::ExprStmt(Expr::expr(tokens, vars)) };
         tokens.expected(";");
         return node;
     }
 }
 
 pub struct Func {
+    pub locals: Vec<Var>,
     pub body: Vec<Stmt>,
 }
 
-impl<'a> Func {
+impl Func {
 
-    pub fn new(tokens: &mut tokenize::TokenGroup) -> Self {
+    pub fn new(tokens: &mut TokenGroup) -> Self {
+        let mut vars = VarGroup { locals: vec![] };
         let mut body = vec![];
         while !tokens.is_end() {
-            body.push(Stmt::stmt(tokens));
+            body.push(Stmt::stmt(tokens, &mut vars));
         }
         return Self {
+            locals: vars.locals,
             body: body,
         }
     }
