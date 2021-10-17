@@ -56,8 +56,13 @@ fn gen_stmt<'a>(node: Stmt, locals: &Vec<PointerValue<'a> >, context: &'a Contex
         StmtKind::Ret(expr) => {
             builder.build_return(Some(&gen_expr(&expr, locals, context, builder)));
         },
+        StmtKind::Block(body) => {
+            for stmt in body {
+                gen_stmt(stmt, locals, context, builder);
+            }
+        },
         StmtKind::ExprStmt(expr) => {
-            gen_expr(&expr, &locals, context, builder);
+            gen_expr(&expr, locals, context, builder);
         },
     }
 }
@@ -70,7 +75,5 @@ pub fn codegen<'a>(func: Func, context: &'a Context, builder: &'a Builder) {
         locals.push(builder.build_alloca(context.i32_type(), local.name.as_str()));
     }
 
-    for stmt in func.body {
-        gen_stmt(stmt, &locals, context, builder);
-    }
+    gen_stmt(func.body, &locals, context, builder);
 }

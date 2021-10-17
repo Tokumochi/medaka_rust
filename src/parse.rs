@@ -215,6 +215,7 @@ impl Expr {
 
 pub enum StmtKind {
     Ret(Expr),
+    Block(Vec<Stmt>),
     ExprStmt(Expr),
 }
 
@@ -223,7 +224,7 @@ pub struct Stmt {
 }
 
 impl Stmt {
-    // stmt -> "return" expr ";" | "dec" declaration | expr_stmt
+    // stmt -> "return" expr ";" | "{" block_stmt | "dec" declaration | expr_stmt
     fn stmt(tokens: &mut TokenGroup, vars: &mut VarGroup) -> Self {
         if tokens.is_equal("return") {
             let node = Self { kind: StmtKind::Ret(Expr::expr(tokens, vars)) };
@@ -231,11 +232,24 @@ impl Stmt {
             return node;
         }
 
+        if tokens.is_equal("{") {
+            return Stmt::block_stmt(tokens, vars);
+        }
+
         if tokens.is_equal("dec") {
             return Stmt::declaration(tokens, vars);
         }
 
         return Stmt::expr_stmt(tokens, vars);
+    }
+
+    // block
+    fn block_stmt(tokens: &mut TokenGroup, vars: &mut VarGroup) -> Self {
+        let mut body = vec![];
+        while !tokens.is_equal("}") {
+            body.push(Stmt::stmt(tokens, vars));
+        }
+        return Self { kind: StmtKind::Block(body) };
     }
 
     // declaration -> ident ":" "i32" "=" expr ";"
@@ -271,17 +285,16 @@ impl Stmt {
 
 pub struct Func {
     pub locals: Vec<Var>,
-    pub body: Vec<Stmt>,
+    pub body: Stmt,
 }
 
 impl Func {
 
     pub fn new(tokens: &mut TokenGroup) -> Self {
+        tokens.expected("{");
         let mut vars = VarGroup { locals: vec![] };
-        let mut body = vec![];
-        while !tokens.is_end() {
-            body.push(Stmt::stmt(tokens, &mut vars));
-        }
+        let body = Stmt::block_stmt(tokens, &mut vars);
+
         return Self {
             locals: vars.locals,
             body: body,
