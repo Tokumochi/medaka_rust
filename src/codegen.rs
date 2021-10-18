@@ -18,14 +18,10 @@ fn gen_expr<'a>(node: &Expr, locals: &Vec<PointerValue<'a> >, context: &'a Conte
             eprintln!("What's happening!?");
             std::process::exit(1);
         },
-        ExprKind::Assign(lhs, rhs) => {
-            if let ExprKind::Var(index) = lhs.kind {
-                let rhs = gen_expr(&rhs, locals, context, builder);
-                builder.build_store(locals[index], rhs);
-                return rhs;
-            }
-            eprintln!("The left side must be variable.");
-            std::process::exit(1);
+        ExprKind::Assign(index, rhs) => {
+            let rhs = gen_expr(&rhs, locals, context, builder);
+            builder.build_store(locals[*index], rhs);
+            return rhs;
         }
         ExprKind::Unary(kind, ohs) => {
             let ohs = gen_expr(&ohs, locals, context, builder);

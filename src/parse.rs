@@ -53,7 +53,7 @@ pub enum BinaryKind {
 pub enum ExprKind {
     Num(u64),
     Var(usize),
-    Assign(Box<Expr>, Box<Expr>),
+    Assign(usize, Box<Expr>),
     Unary(UnaryKind, Box<Expr>),
     Binary(BinaryKind, Box<Expr>, Box<Expr>),
 }
@@ -70,9 +70,9 @@ impl Expr {
         }
     }
 
-    fn new_assign_node(lhs: Self, rhs: Self) -> Self {
+    fn new_assign_node(index: usize, rhs: Self) -> Self {
         Self {
-            kind: ExprKind::Assign(Box::new(lhs), Box::new(rhs)),
+            kind: ExprKind::Assign(index, Box::new(rhs)),
         }
     }
     
@@ -97,7 +97,12 @@ impl Expr {
     fn assign(tokens: &mut TokenGroup, vars: &VarGroup) -> Self {
         let node = Expr::equality(tokens, vars);
         if tokens.is_equal("=") {
-            return Expr::new_assign_node(node, Expr::equality(tokens, vars));
+            if let ExprKind::Var(index) = node.kind {
+                return Expr::new_assign_node(index, Expr::equality(tokens, vars));
+            } else {
+                tokens.previous_token_error("The left side must be variable.".to_string());
+                std::process::exit(1);
+            }
         }
         return node;
     }
@@ -197,7 +202,8 @@ impl Expr {
             if let Some(index) = vars.find_var(name) {
                 return Expr::new_var_node(index);
             } else {
-                eprintln!("The variable name \"{}\" doesn't exists.", name);
+                let message = format!("The variable name \"{}\" doesn't exists.", name);
+                tokens.previous_token_error(message);
                 std::process::exit(1);
             }
         }
@@ -208,7 +214,7 @@ impl Expr {
             };
         }
 
-        eprintln!("expected an expression");
+        tokens.current_token_error("expected an expression".to_string());
         std::process::exit(1);
     }
 }
@@ -256,22 +262,23 @@ impl Stmt {
     fn declaration(tokens: &mut TokenGroup, vars: &mut VarGroup) -> Self {
         if let Some(name) = tokens.is_ident() {
             if let Some(_) = vars.find_var(name) {
-                eprintln!("The variable name \"{}\" already exists.", name);
+                let message = format!("The variable name \"{}\" already exists.", name);
+                tokens.previous_token_error(message);
                 std::process::exit(1);
             } else {
-                let var_node = Expr::new_var_node(vars.new_local_var(name));
+                let index = vars.new_local_var(name);
                 tokens.expected(":");
                 tokens.expected("i32");
                 tokens.expected("=");
 
                 let node = Self {
-                    kind: StmtKind::ExprStmt(Expr::new_assign_node(var_node, Expr::expr(tokens, vars))),
+                    kind: StmtKind::ExprStmt(Expr::new_assign_node(index, Expr::expr(tokens, vars))),
                 };
                 tokens.expected(";");
                 return node;
             }
         }
-        eprintln!("ident is expected");
+        tokens.current_token_error("identifier is expected".to_string());
         std::process::exit(1);
     }
 
