@@ -49,5 +49,7 @@ assert 0 "{ return 0>=1; }"
 assert 1 "{ return 1>=1; }"
 assert 1 "{ return 2>=1; }"
 assert 32 "{ 10; { 21; return 32; } return 57; }"
+assert 4 "{ dec a: i32 = 1; if a<1: return 3; return 4; }"
+assert 3 "{ if 1==1: return 3; else return 4; }"
 
 echo OK 

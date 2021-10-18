@@ -221,6 +221,7 @@ impl Expr {
 
 pub enum StmtKind {
     Ret(Expr),
+    If(Expr, Box<Stmt>, Option<Box<Stmt>>),
     Block(Vec<Stmt>),
     ExprStmt(Expr),
 }
@@ -230,7 +231,10 @@ pub struct Stmt {
 }
 
 impl Stmt {
-    // stmt -> "return" expr ";" | "{" block_stmt | "dec" declaration | expr_stmt
+    // stmt -> "return" expr ";"
+    //       | "if" expr ":" stmt ("else" stmt)?
+    //       | "{" block_stmt
+    //       | expr_stmt
     fn stmt(tokens: &mut TokenGroup, vars: &mut VarGroup) -> Self {
         if tokens.is_equal("return") {
             let node = Self { kind: StmtKind::Ret(Expr::expr(tokens, vars)) };
@@ -238,18 +242,26 @@ impl Stmt {
             return node;
         }
 
-        if tokens.is_equal("{") {
-            return Stmt::block_stmt(tokens, vars);
+        if tokens.is_equal("if") {
+            let cond = Expr::expr(tokens, vars);
+            tokens.expected(":");
+            let then = Stmt::stmt(tokens, vars);
+            if tokens.is_equal("else") {
+                let els = Stmt::stmt(tokens, vars);
+                return Self { kind: StmtKind::If(cond, Box::new(then), Some(Box::new(els))) };
+            } else {
+                return Self { kind: StmtKind::If(cond, Box::new(then), None) };
+            }
         }
 
-        if tokens.is_equal("dec") {
-            return Stmt::declaration(tokens, vars);
+        if tokens.is_equal("{") {
+            return Stmt::block_stmt(tokens, vars);
         }
 
         return Stmt::expr_stmt(tokens, vars);
     }
 
-    // block
+    // block -> stmt* "}"
     fn block_stmt(tokens: &mut TokenGroup, vars: &mut VarGroup) -> Self {
         let mut body = vec![];
         while !tokens.is_equal("}") {
@@ -282,8 +294,11 @@ impl Stmt {
         std::process::exit(1);
     }
 
-    // expr_stmt ->　expr ";"
+    // expr_stmt -> "dec" declaration |　expr ";"
     fn expr_stmt(tokens: &mut TokenGroup, vars: &mut VarGroup) -> Self {
+        if tokens.is_equal("dec") {
+            return Stmt::declaration(tokens, vars);
+        }
         let node = Self { kind: StmtKind::ExprStmt(Expr::expr(tokens, vars)) };
         tokens.expected(";");
         return node;
@@ -299,7 +314,7 @@ impl Func {
 
     pub fn new(tokens: &mut TokenGroup) -> Self {
         tokens.expected("{");
-        let mut vars = VarGroup { locals: vec![] };
+        let mut vars = VarGroup { locals: vec![ Var::new("return") ] };
         let body = Stmt::block_stmt(tokens, &mut vars);
 
         return Self {

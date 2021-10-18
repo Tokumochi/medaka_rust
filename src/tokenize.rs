@@ -136,7 +136,7 @@ impl<'a> TokenGroup<'a> {
                         break;
                     }
                 }
-                let keywords = ["dec", "i32", "return"];
+                let keywords = ["dec", "i32", "if", "else", "return"];
                 for keyword in keywords {
                     if &code[start .. p] == keyword {
                         tokens.push(Token::new_opera(keyword, code, start, p - start));
