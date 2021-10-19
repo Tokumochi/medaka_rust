@@ -93,12 +93,12 @@ impl Expr {
         Expr::assign(tokens, vars)
     }
 
-    // assign -> equality ("=" equality)?
+    // assign -> equality ("=" assign)?
     fn assign(tokens: &mut TokenGroup, vars: &VarGroup) -> Self {
         let node = Expr::equality(tokens, vars);
         if tokens.is_equal("=") {
             if let ExprKind::Var(index) = node.kind {
-                return Expr::new_assign_node(index, Expr::equality(tokens, vars));
+                return Expr::new_assign_node(index, Expr::assign(tokens, vars));
             } else {
                 tokens.previous_token_error("The left side must be variable.".to_string());
                 std::process::exit(1);
@@ -270,28 +270,39 @@ impl Stmt {
         return Self { kind: StmtKind::Block(body) };
     }
 
-    // declaration -> ident ":" "i32" "=" expr ";"
+    // declaration -> (ident ":" "i32" ("=" expr)? ("," ident ":" "i32" ("=" expr)?)*)? ";"
     fn declaration(tokens: &mut TokenGroup, vars: &mut VarGroup) -> Self {
-        if let Some(name) = tokens.is_ident() {
-            if let Some(_) = vars.find_var(name) {
-                let message = format!("The variable name \"{}\" already exists.", name);
-                tokens.previous_token_error(message);
-                std::process::exit(1);
+        let mut body = vec![];
+        let mut is_first = true;
+        while !tokens.is_equal(";") {
+            if is_first {
+                is_first = false;
             } else {
-                let index = vars.new_local_var(name);
-                tokens.expected(":");
-                tokens.expected("i32");
-                tokens.expected("=");
-
-                let node = Self {
-                    kind: StmtKind::ExprStmt(Expr::new_assign_node(index, Expr::expr(tokens, vars))),
-                };
-                tokens.expected(";");
-                return node;
+                tokens.expected(",");
+            }
+            if let Some(name) = tokens.is_ident() {
+                if let Some(_) = vars.find_var(name) {
+                    let message = format!("The variable name \"{}\" already exists.", name);
+                    tokens.previous_token_error(message);
+                    std::process::exit(1);
+                } else {
+                    let index = vars.new_local_var(name);
+                    tokens.expected(":");
+                    tokens.expected("i32");
+                
+                    if tokens.is_equal("=") {
+                        body.push(Self { kind: StmtKind::ExprStmt(Expr::new_assign_node(index, Expr::expr(tokens, vars))) });
+                    }
+                }
+            } else {
+                tokens.current_token_error("identifier is expected".to_string());
+                std::process::exit(1);
             }
         }
-        tokens.current_token_error("identifier is expected".to_string());
-        std::process::exit(1);
+
+        return Self {
+            kind: StmtKind::Block(body),
+        };
     }
 
     // expr_stmt -> "dec" declaration |　expr ";"
