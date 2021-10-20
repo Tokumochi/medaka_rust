@@ -53,5 +53,6 @@ assert 32 "define main(): i32 { 10; { 21; return 32; } return 57; }"
 assert 4 "define main(): i32 { dec a: i32 = 1; if a<1: return 3; return 4; }"
 assert 3 "define main(): i32 { if 1==1: return 3; else return 4; }"
 assert 10 "define ret3(): i32 { return 3; } define main(): i32 { return 10; }"
+assert 10 "define add5(a: i32, b: i32, c: i32, d: i32, e: i32): i32 { return a+b+c+d+e; } define main(): i32 { return 10; }"
 
 echo OK 

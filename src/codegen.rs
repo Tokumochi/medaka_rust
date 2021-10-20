@@ -102,7 +102,12 @@ pub fn codegen<'a>(defs: DefinitionGroup) {
     let builder = context.create_builder();
 
     for func in defs.funcs {
-        let func_value = module.add_function(&func.name, context.i32_type().fn_type(&[], false), None);
+        let mut param_types = vec![];
+        for _ in 0..func.num_of_args {
+            param_types.push(context.i32_type().into());
+        }
+
+        let func_value = module.add_function(&func.name, context.i32_type().fn_type(&param_types, false), None);
         let basic_block = context.append_basic_block(func_value, "");
         builder.position_at_end(basic_block);
 
@@ -110,6 +115,14 @@ pub fn codegen<'a>(defs: DefinitionGroup) {
     
         for local in func.locals {
             locals.push(builder.build_alloca(context.i32_type(), local.name.as_str()));
+        }
+
+        for (index, param) in func_value.get_param_iter().enumerate() {
+            if let BasicValueEnum::IntValue(param) = param {
+                builder.build_store(locals[index + 1], param);
+            } else {
+                eprintln!("What's happening!?");
+            }
         }
     
         let ret_block = context.append_basic_block(func_value, "");

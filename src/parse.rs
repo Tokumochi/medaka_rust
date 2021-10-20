@@ -33,6 +33,24 @@ impl VarGroup {
         self.locals.push(var);
         return self.locals.len() - 1;
     }
+
+    // declarator -> ident ":" "i32"
+    fn declarator(&mut self, tokens: &mut TokenGroup) -> usize {
+        if let Some(name) = tokens.is_ident() {
+            if let Some(_) = self.find_var(name) {
+                let message = format!("The variable name \"{}\" already exists.", name);
+                tokens.previous_token_error(message);
+                std::process::exit(1);
+            } else {
+                let index = self.new_local_var(name);
+                tokens.expected(":");
+                tokens.expected("i32");
+                return index;
+            }
+        }
+        tokens.current_token_error("identifier is expected".to_string());
+        std::process::exit(1);
+    }
 }
 
 pub enum UnaryKind {
@@ -270,7 +288,7 @@ impl Stmt {
         return Self { kind: StmtKind::Block(body) };
     }
 
-    // declaration -> (ident ":" "i32" ("=" expr)? ("," ident ":" "i32" ("=" expr)?)*)? ";"
+    // declaration -> (declarator ("=" expr)? ("," declarator ("=" expr)?)*)? ";"
     fn declaration(tokens: &mut TokenGroup, vars: &mut VarGroup) -> Self {
         let mut body = vec![];
         let mut is_first = true;
@@ -280,26 +298,11 @@ impl Stmt {
             } else {
                 tokens.expected(",");
             }
-            if let Some(name) = tokens.is_ident() {
-                if let Some(_) = vars.find_var(name) {
-                    let message = format!("The variable name \"{}\" already exists.", name);
-                    tokens.previous_token_error(message);
-                    std::process::exit(1);
-                } else {
-                    let index = vars.new_local_var(name);
-                    tokens.expected(":");
-                    tokens.expected("i32");
-                
-                    if tokens.is_equal("=") {
-                        body.push(Self { kind: StmtKind::ExprStmt(Expr::new_assign_node(index, Expr::expr(tokens, vars))) });
-                    }
-                }
-            } else {
-                tokens.current_token_error("identifier is expected".to_string());
-                std::process::exit(1);
+            let index = vars.declarator(tokens);
+            if tokens.is_equal("=") {
+                body.push(Self { kind: StmtKind::ExprStmt(Expr::new_assign_node(index, Expr::expr(tokens, vars))) });
             }
         }
-
         return Self {
             kind: StmtKind::Block(body),
         };
@@ -319,6 +322,7 @@ impl Stmt {
 pub struct Func {
     pub name: String,
     pub locals: Vec<Var>,
+    pub num_of_args: u32,
     pub body: Stmt,
 }
 
@@ -328,16 +332,29 @@ impl Func {
         if let Some(name) = tokens.is_ident() {
             let name = name.to_string();
             tokens.expected("(");
-            tokens.expected(")");
+
+            let mut vars = VarGroup { locals: vec![ Var::new("return") ] };
+            let mut is_first = true;
+            let mut num_of_args = 0;
+            while !tokens.is_equal(")") {
+                if is_first {
+                    is_first = false;
+                } else {
+                    tokens.expected(",");
+                }
+                vars.declarator(tokens);
+                num_of_args += 1;
+            }
+
             tokens.expected(":");
             tokens.expected("i32");
             tokens.expected("{");
-            let mut vars = VarGroup { locals: vec![ Var::new("return") ] };
             let body = Stmt::block_stmt(tokens, &mut vars);
     
             return Self {
                 name: name,
                 locals: vars.locals,
+                num_of_args: num_of_args,
                 body: body,
             }
         }
