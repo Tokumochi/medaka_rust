@@ -317,20 +317,50 @@ impl Stmt {
 }
 
 pub struct Func {
+    pub name: String,
     pub locals: Vec<Var>,
     pub body: Stmt,
 }
 
 impl Func {
+    // func -> ident "(" ")" ":" "i32" "{" block
+    fn func(tokens: &mut TokenGroup) -> Self {
+        if let Some(name) = tokens.is_ident() {
+            let name = name.to_string();
+            tokens.expected("(");
+            tokens.expected(")");
+            tokens.expected(":");
+            tokens.expected("i32");
+            tokens.expected("{");
+            let mut vars = VarGroup { locals: vec![ Var::new("return") ] };
+            let body = Stmt::block_stmt(tokens, &mut vars);
+    
+            return Self {
+                name: name,
+                locals: vars.locals,
+                body: body,
+            }
+        }
+        tokens.current_token_error("identifier is expected".to_string());
+        std::process::exit(1);
+    }
+}
+
+pub struct DefinitionGroup {
+    pub funcs: Vec<Func>,
+}
+
+impl DefinitionGroup {
 
     pub fn new(tokens: &mut TokenGroup) -> Self {
-        tokens.expected("{");
-        let mut vars = VarGroup { locals: vec![ Var::new("return") ] };
-        let body = Stmt::block_stmt(tokens, &mut vars);
+        let mut funcs = vec![];
+        while !tokens.is_end() {
+            tokens.expected("define");
+            funcs.push(Func::func(tokens));
+        }
 
         return Self {
-            locals: vars.locals,
-            body: body,
+            funcs: funcs,
         }
     }
 }

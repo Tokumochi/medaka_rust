@@ -4,7 +4,7 @@ mod codegen;
 
 use std::env;
 use tokenize::TokenGroup;
-use parse::Func;
+use parse::DefinitionGroup;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -12,7 +12,7 @@ fn main() {
     let code: &str = args[1].as_str();
 
     let mut tokens = TokenGroup::new(code);
-    let func = Func::new(&mut tokens);
+    let defs = DefinitionGroup::new(&mut tokens);
 
-    codegen::codegen(func);
+    codegen::codegen(defs);
 }

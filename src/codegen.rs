@@ -3,8 +3,7 @@ use inkwell::context::Context;
 use inkwell::builder::Builder;
 use inkwell::values::{BasicValueEnum, FunctionValue, IntValue, PointerValue};
 use inkwell::IntPredicate::{EQ, NE, SLT, SLE};
-use crate::parse::{BinaryKind, UnaryKind};
-use super::parse::{ExprKind, Expr, StmtKind, Stmt, Func};
+use super::parse::{UnaryKind, BinaryKind, ExprKind, Expr, StmtKind, Stmt, DefinitionGroup};
 
 fn gen_expr<'a>(node: &Expr, locals: &Vec<PointerValue<'a> >, context: &'a Context, builder: &'a Builder) -> IntValue<'a> {
 
@@ -48,7 +47,7 @@ fn gen_expr<'a>(node: &Expr, locals: &Vec<PointerValue<'a> >, context: &'a Conte
 }
 
 // getting "return" and return true
-fn gen_stmt<'a>(node: Stmt, locals: &Vec<PointerValue<'a> >, func: FunctionValue, ret_block: BasicBlock, context: &'a Context, builder: &'a Builder) -> bool {
+fn gen_stmt<'a>(node: Stmt, locals: &Vec<PointerValue<'a> >, func_value: FunctionValue, ret_block: BasicBlock, context: &'a Context, builder: &'a Builder) -> bool {
 
     match node.kind {
         StmtKind::Ret(expr) => {
@@ -57,16 +56,16 @@ fn gen_stmt<'a>(node: Stmt, locals: &Vec<PointerValue<'a> >, func: FunctionValue
             return true;
         },
         StmtKind::If(cond, then, els) => {
-            let then_block = context.append_basic_block(func, "");
-            let end_block = context.append_basic_block(func, "");
+            let then_block = context.append_basic_block(func_value, "");
+            let end_block = context.append_basic_block(func_value, "");
             let cond = gen_expr(&cond, locals, context, builder);
             let comp = builder.build_int_compare(EQ, cond, context.i32_type().const_int(0, false), "");
 
             if let Some(els) = els {
-                let else_block = context.append_basic_block(func, "");
+                let else_block = context.append_basic_block(func_value, "");
                 builder.build_conditional_branch(comp, else_block, then_block);
                 builder.position_at_end(else_block);
-                if !gen_stmt(*els, locals, func, ret_block, context, builder) {
+                if !gen_stmt(*els, locals, func_value, ret_block, context, builder) {
                     builder.build_unconditional_branch(end_block);
                 }
             } else {
@@ -74,7 +73,7 @@ fn gen_stmt<'a>(node: Stmt, locals: &Vec<PointerValue<'a> >, func: FunctionValue
             }
 
             builder.position_at_end(then_block);
-            if !gen_stmt(*then, locals, func, ret_block, context, builder) {
+            if !gen_stmt(*then, locals, func_value, ret_block, context, builder) {
                 builder.build_unconditional_branch(end_block);
             }
 
@@ -83,7 +82,7 @@ fn gen_stmt<'a>(node: Stmt, locals: &Vec<PointerValue<'a> >, func: FunctionValue
         },
         StmtKind::Block(body) => {
             for stmt in body {
-                if gen_stmt(stmt, locals, func, ret_block, context, builder) {
+                if gen_stmt(stmt, locals, func_value, ret_block, context, builder) {
                     return true;
                 }
             }
@@ -96,29 +95,31 @@ fn gen_stmt<'a>(node: Stmt, locals: &Vec<PointerValue<'a> >, func: FunctionValue
     }
 }
 
-pub fn codegen<'a>(func: Func) {
+pub fn codegen<'a>(defs: DefinitionGroup) {
 
     let context = Context::create();
     let module = context.create_module("top");
     let builder = context.create_builder();
 
-    let main_func = module.add_function("main", context.i32_type().fn_type(&[], false), None);
-    let basic_block = context.append_basic_block(main_func, "");
-    builder.position_at_end(basic_block);
+    for func in defs.funcs {
+        let func_value = module.add_function(&func.name, context.i32_type().fn_type(&[], false), None);
+        let basic_block = context.append_basic_block(func_value, "");
+        builder.position_at_end(basic_block);
 
-    let mut locals = vec![];
-
-    for local in func.locals {
-        locals.push(builder.build_alloca(context.i32_type(), local.name.as_str()));
+        let mut locals = vec![];
+    
+        for local in func.locals {
+            locals.push(builder.build_alloca(context.i32_type(), local.name.as_str()));
+        }
+    
+        let ret_block = context.append_basic_block(func_value, "");
+        if !gen_stmt(func.body, &locals, func_value, ret_block, &context, &builder) {
+            builder.build_unconditional_branch(ret_block);
+        }
+    
+        builder.position_at_end(ret_block);    
+        builder.build_return(Some(&builder.build_load(locals[0], "")));
     }
-
-    let ret_block = context.append_basic_block(main_func, "");
-    if !gen_stmt(func.body, &locals, main_func, ret_block, &context, &builder) {
-        builder.build_unconditional_branch(ret_block);
-    }
-
-    builder.position_at_end(ret_block);    
-    builder.build_return(Some(&builder.build_load(locals[0], "")));
 
     println!("{}", module.print_to_string().to_string());
 }
