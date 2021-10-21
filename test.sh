@@ -52,7 +52,8 @@ assert 1 "define main(): i32 { return 2>=1; }"
 assert 32 "define main(): i32 { 10; { 21; return 32; } return 57; }"
 assert 4 "define main(): i32 { dec a: i32 = 1; if a<1: return 3; return 4; }"
 assert 3 "define main(): i32 { if 1==1: return 3; else return 4; }"
-assert 10 "define ret3(): i32 { return 3; } define main(): i32 { return 10; }"
-assert 10 "define add5(a: i32, b: i32, c: i32, d: i32, e: i32): i32 { return a+b+c+d+e; } define main(): i32 { return 10; }"
+assert 3 "define ret3(): i32 { return 3; } define main(): i32 { return ret3(); }"
+assert 15 "define add5(a: i32, b: i32, c: i32, d: i32, e: i32): i32 { return a+b+c+d+e; } define main(): i32 { return add5(1,2,3,4,5); }"
+assert 89 "define fibo(a: i32): i32 { if a<=1: return 1; return fibo(a-1) + fibo(a-2); } define main(): i32 { return fibo(10); }"
 
 echo OK 
