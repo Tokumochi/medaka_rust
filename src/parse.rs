@@ -20,14 +20,15 @@ pub struct Func {
     pub body: Stmt,
 }
 
-struct ObjectGroup<'a> {
-    locals: Vec<Var>,
-    funcs: &'a Vec<Func>,
+// Manager of Function Creation
+struct CreatManager<'a> {
     name: String,
+    locals: Vec<Var>,
     num_of_params: usize,
+    funcs: &'a Vec<Func>,
 }
 
-impl<'a> ObjectGroup<'a> {
+impl<'a> CreatManager<'a> {
 
     fn find_local_var(&self, name: &str) -> Option<usize> {
         for (index, var) in self.locals.iter().enumerate() {
@@ -141,16 +142,16 @@ impl Expr {
     }
 
     // expr -> assign
-    fn expr(tokens: &mut TokenGroup, objects: &ObjectGroup) -> Self {
-        Expr::assign(tokens, objects)
+    fn expr(tokens: &mut TokenGroup, manager: &CreatManager) -> Self {
+        Expr::assign(tokens, manager)
     }
 
     // assign -> equality ("=" assign)?
-    fn assign(tokens: &mut TokenGroup, objects: &ObjectGroup) -> Self {
-        let node = Expr::equality(tokens, objects);
+    fn assign(tokens: &mut TokenGroup, manager: &CreatManager) -> Self {
+        let node = Expr::equality(tokens, manager);
         if tokens.is_equal("=") {
             if let ExprKind::Var(index) = node.kind {
-                return Expr::new_assign_node(index, Expr::assign(tokens, objects));
+                return Expr::new_assign_node(index, Expr::assign(tokens, manager));
             } else {
                 tokens.previous_token_error("The left side must be variable.".to_string());
                 std::process::exit(1);
@@ -160,15 +161,15 @@ impl Expr {
     }
 
     // equality -> relational ("==" relational | "!=" relational)*
-    fn equality(tokens: &mut TokenGroup, objects: &ObjectGroup) -> Self {
-        let mut node = Expr::relational(tokens, objects);
+    fn equality(tokens: &mut TokenGroup, manager: &CreatManager) -> Self {
+        let mut node = Expr::relational(tokens, manager);
         loop {
             if tokens.is_equal("==") {
-                node = Expr::new_binary_node(BinaryKind::Equ, node, Expr::relational(tokens, objects));
+                node = Expr::new_binary_node(BinaryKind::Equ, node, Expr::relational(tokens, manager));
                 continue;
             }
             if tokens.is_equal("!=") {
-                node = Expr::new_binary_node(BinaryKind::Neq, node, Expr::relational(tokens, objects));
+                node = Expr::new_binary_node(BinaryKind::Neq, node, Expr::relational(tokens, manager));
                 continue;
             }
             return node;
@@ -176,23 +177,23 @@ impl Expr {
     }
 
     // relational -> add ("<" add | "<=" add | ">" add | ">=" add)*
-    fn relational(tokens: &mut TokenGroup, objects: &ObjectGroup) -> Self {
-        let mut node = Expr::add(tokens, objects);
+    fn relational(tokens: &mut TokenGroup, manager: &CreatManager) -> Self {
+        let mut node = Expr::add(tokens, manager);
         loop {
             if tokens.is_equal("<") {
-                node = Expr::new_binary_node(BinaryKind::Les, node, Expr::add(tokens, objects));
+                node = Expr::new_binary_node(BinaryKind::Les, node, Expr::add(tokens, manager));
                 continue;
             }
             if tokens.is_equal("<=") {
-                node = Expr::new_binary_node(BinaryKind::Leq, node, Expr::add(tokens, objects));
+                node = Expr::new_binary_node(BinaryKind::Leq, node, Expr::add(tokens, manager));
                 continue;
             }
             if tokens.is_equal(">") {
-                node = Expr::new_binary_node(BinaryKind::Les, Expr::add(tokens, objects), node);
+                node = Expr::new_binary_node(BinaryKind::Les, Expr::add(tokens, manager), node);
                 continue;
             }
             if tokens.is_equal(">=") {
-                node = Expr::new_binary_node(BinaryKind::Leq, Expr::add(tokens, objects), node);
+                node = Expr::new_binary_node(BinaryKind::Leq, Expr::add(tokens, manager), node);
                 continue;
             }
             return node;
@@ -200,15 +201,15 @@ impl Expr {
     }
     
     // add -> mul ("+" mul | "-" mul)*
-    fn add(tokens: &mut TokenGroup, objects: &ObjectGroup) -> Self {
-        let mut node = Expr::mul(tokens, objects);
+    fn add(tokens: &mut TokenGroup, manager: &CreatManager) -> Self {
+        let mut node = Expr::mul(tokens, manager);
         loop {
             if tokens.is_equal("+") {
-                node = Expr::new_binary_node(BinaryKind::Add, node, Expr::mul(tokens, objects));
+                node = Expr::new_binary_node(BinaryKind::Add, node, Expr::mul(tokens, manager));
                 continue;
             }
             if tokens.is_equal("-") {
-                node = Expr::new_binary_node(BinaryKind::Sub, node, Expr::mul(tokens, objects));
+                node = Expr::new_binary_node(BinaryKind::Sub, node, Expr::mul(tokens, manager));
                 continue;
             }
             return node;
@@ -216,15 +217,15 @@ impl Expr {
     }
     
     // mul -> unary ("*" unary | "/" unary)*
-    fn mul(tokens: &mut TokenGroup, objects: &ObjectGroup) -> Self {
-        let mut node = Expr::unary(tokens, objects);
+    fn mul(tokens: &mut TokenGroup, manager: &CreatManager) -> Self {
+        let mut node = Expr::unary(tokens, manager);
         loop {
             if tokens.is_equal("*") {
-                node = Expr::new_binary_node(BinaryKind::Mul, node, Expr::unary(tokens, objects));
+                node = Expr::new_binary_node(BinaryKind::Mul, node, Expr::unary(tokens, manager));
                 continue;
             }
             if tokens.is_equal("/") {
-                node = Expr::new_binary_node(BinaryKind::Div, node, Expr::unary(tokens, objects));
+                node = Expr::new_binary_node(BinaryKind::Div, node, Expr::unary(tokens, manager));
                 continue;
             }
             return node;
@@ -232,27 +233,27 @@ impl Expr {
     }
 
     // unary -> ("+" | "-") unary | primary
-    fn unary(tokens: &mut TokenGroup, objects: &ObjectGroup) -> Self {
+    fn unary(tokens: &mut TokenGroup, manager: &CreatManager) -> Self {
         if tokens.is_equal("+") {
-            return Expr::unary(tokens, objects);
+            return Expr::unary(tokens, manager);
         }
         if tokens.is_equal("-") {
-            return Expr::new_unary_node(UnaryKind::Neg, Expr::unary(tokens, objects));
+            return Expr::new_unary_node(UnaryKind::Neg, Expr::unary(tokens, manager));
         }
-        return Expr::primary(tokens, objects);
+        return Expr::primary(tokens, manager);
     }
     
     // primary -> "(" expr ")" | ident ("(" (expr ("," expr)*)? ")")? | num
-    fn primary(tokens: &mut TokenGroup, objects: &ObjectGroup) -> Self {
+    fn primary(tokens: &mut TokenGroup, manager: &CreatManager) -> Self {
         if tokens.is_equal("(") {
-            let node = Expr::expr(tokens, objects);
+            let node = Expr::expr(tokens, manager);
             tokens.expected(")");
             return node;
         }
 
         if let Some(name) = tokens.is_ident() {
             // call
-            if let Some((index, num_of_params)) = objects.find_func(name) {
+            if let Some((index, num_of_params)) = manager.find_func(name) {
                 let name = name.to_string();
                 tokens.expected("(");
                 let mut args = vec![];
@@ -263,7 +264,7 @@ impl Expr {
                     } else {
                         tokens.expected(",");
                     }
-                    args.push(Expr::expr(tokens, objects));
+                    args.push(Expr::expr(tokens, manager));
                 }
                 if args.len() != num_of_params {
                     tokens.previous_token_error(format!("The function \"{}\" needs {} args, but found {} args.", name, num_of_params, args.len()));
@@ -272,7 +273,7 @@ impl Expr {
                 return Expr::new_call_node(index, args);
             }
             // variable
-            if let Some(index) = objects.find_local_var(name) {
+            if let Some(index) = manager.find_local_var(name) {
                 return Expr::new_var_node(index);
             }
 
@@ -306,19 +307,19 @@ impl Stmt {
     //       | "if" expr ":" stmt ("else" stmt)?
     //       | "{" block_stmt
     //       | expr_stmt
-    fn stmt(tokens: &mut TokenGroup, objects: &mut ObjectGroup) -> Self {
+    fn stmt(tokens: &mut TokenGroup, manager: &mut CreatManager) -> Self {
         if tokens.is_equal("return") {
-            let node = Self { kind: StmtKind::Ret(Expr::expr(tokens, objects)) };
+            let node = Self { kind: StmtKind::Ret(Expr::expr(tokens, manager)) };
             tokens.expected(";");
             return node;
         }
 
         if tokens.is_equal("if") {
-            let cond = Expr::expr(tokens, objects);
+            let cond = Expr::expr(tokens, manager);
             tokens.expected(":");
-            let then = Stmt::stmt(tokens, objects);
+            let then = Stmt::stmt(tokens, manager);
             if tokens.is_equal("else") {
-                let els = Stmt::stmt(tokens, objects);
+                let els = Stmt::stmt(tokens, manager);
                 return Self { kind: StmtKind::If(cond, Box::new(then), Some(Box::new(els))) };
             } else {
                 return Self { kind: StmtKind::If(cond, Box::new(then), None) };
@@ -326,23 +327,23 @@ impl Stmt {
         }
 
         if tokens.is_equal("{") {
-            return Stmt::block_stmt(tokens, objects);
+            return Stmt::block_stmt(tokens, manager);
         }
 
-        return Stmt::expr_stmt(tokens, objects);
+        return Stmt::expr_stmt(tokens, manager);
     }
 
     // block -> stmt* "}"
-    fn block_stmt(tokens: &mut TokenGroup, objects: &mut ObjectGroup) -> Self {
+    fn block_stmt(tokens: &mut TokenGroup, manager: &mut CreatManager) -> Self {
         let mut body = vec![];
         while !tokens.is_equal("}") {
-            body.push(Stmt::stmt(tokens, objects));
+            body.push(Stmt::stmt(tokens, manager));
         }
         return Self { kind: StmtKind::Block(body) };
     }
 
     // declaration -> (declarator ("=" expr)? ("," declarator ("=" expr)?)*)? ";"
-    fn declaration(tokens: &mut TokenGroup, objects: &mut ObjectGroup) -> Self {
+    fn declaration(tokens: &mut TokenGroup, manager: &mut CreatManager) -> Self {
         let mut body = vec![];
         let mut is_first = true;
         while !tokens.is_equal(";") {
@@ -351,9 +352,9 @@ impl Stmt {
             } else {
                 tokens.expected(",");
             }
-            let index = objects.declarator(tokens);
+            let index = manager.declarator(tokens);
             if tokens.is_equal("=") {
-                body.push(Self { kind: StmtKind::ExprStmt(Expr::new_assign_node(index, Expr::expr(tokens, objects))) });
+                body.push(Self { kind: StmtKind::ExprStmt(Expr::new_assign_node(index, Expr::expr(tokens, manager))) });
             }
         }
         return Self {
@@ -362,11 +363,11 @@ impl Stmt {
     }
 
     // expr_stmt -> "dec" declaration |　expr ";"
-    fn expr_stmt(tokens: &mut TokenGroup, objects: &mut ObjectGroup) -> Self {
+    fn expr_stmt(tokens: &mut TokenGroup, manager: &mut CreatManager) -> Self {
         if tokens.is_equal("dec") {
-            return Stmt::declaration(tokens, objects);
+            return Stmt::declaration(tokens, manager);
         }
-        let node = Self { kind: StmtKind::ExprStmt(Expr::expr(tokens, objects)) };
+        let node = Self { kind: StmtKind::ExprStmt(Expr::expr(tokens, manager)) };
         tokens.expected(";");
         return node;
     }
@@ -378,12 +379,12 @@ pub struct DefGroup {
 
 impl DefGroup {
     // func -> ident "(" ")" ":" "i32" "{" block
-    fn func(funcs: &mut Vec<Func>, tokens: &mut TokenGroup) -> Func {
+    fn func(tokens: &mut TokenGroup, funcs: &mut Vec<Func>) -> Func {
         if let Some(name) = tokens.is_ident() {
             let name = name.to_string();
             tokens.expected("(");
 
-            let mut objects = ObjectGroup { locals: vec![ Var::new("return") ], funcs: funcs, name: name.clone(), num_of_params: 0 };
+            let mut manager = CreatManager { name: name.clone(), locals: vec![ Var::new("return") ],  num_of_params: 0, funcs: funcs };
             let mut is_first = true;
             let mut num_of_params = 0;
             while !tokens.is_equal(")") {
@@ -392,7 +393,7 @@ impl DefGroup {
                 } else {
                     tokens.expected(",");
                 }
-                objects.declarator(tokens);
+                manager.declarator(tokens);
                 num_of_params += 1;
             }
 
@@ -400,12 +401,12 @@ impl DefGroup {
             tokens.expected("i32");
             tokens.expected("{");
 
-            objects.num_of_params = num_of_params;
-            let body = Stmt::block_stmt(tokens, &mut objects);
+            manager.num_of_params = num_of_params;
+            let body = Stmt::block_stmt(tokens, &mut manager);
     
             return Func {
                 name: name,
-                locals: objects.locals,
+                locals: manager.locals,
                 num_of_params: num_of_params,
                 body: body,
             }
@@ -418,7 +419,7 @@ impl DefGroup {
         let mut funcs = vec![];
         while !tokens.is_end() {
             tokens.expected("define");
-            let func = DefGroup::func(&mut funcs, tokens);
+            let func = DefGroup::func(tokens, &mut funcs);
             funcs.push(func);
         }
 
