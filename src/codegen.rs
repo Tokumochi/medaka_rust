@@ -70,11 +70,11 @@ fn gen_expr<'a>(node: &Expr, locals: &Vec<PointerValue<'a> >, funcs: &Vec<Functi
 }
 
 // getting "return" and return true
-fn gen_stmt<'a>(node: Stmt, locals: &Vec<PointerValue<'a> >, funcs: &Vec<FunctionValue>, func_value: FunctionValue, ret_block: BasicBlock, context: &'a Context, builder: &'a Builder) -> bool {
+fn gen_stmt<'a>(node: Stmt, ret_value: PointerValue<'a>, locals: &Vec<PointerValue<'a> >, funcs: &Vec<FunctionValue>, func_value: FunctionValue, ret_block: BasicBlock, context: &'a Context, builder: &'a Builder) -> bool {
 
     match node.kind {
         StmtKind::Ret(expr) => {
-            builder.build_store(locals[0], gen_expr(&expr, locals, funcs, context, builder));
+            builder.build_store(ret_value, gen_expr(&expr, locals, funcs, context, builder));
             builder.build_unconditional_branch(ret_block);
             return true;
         },
@@ -88,7 +88,7 @@ fn gen_stmt<'a>(node: Stmt, locals: &Vec<PointerValue<'a> >, funcs: &Vec<Functio
                 let else_block = context.append_basic_block(func_value, "");
                 builder.build_conditional_branch(comp, else_block, then_block);
                 builder.position_at_end(else_block);
-                if !gen_stmt(*els, locals, funcs, func_value, ret_block, context, builder) {
+                if !gen_stmt(*els, ret_value, locals, funcs, func_value, ret_block, context, builder) {
                     builder.build_unconditional_branch(end_block);
                 }
             } else {
@@ -96,7 +96,7 @@ fn gen_stmt<'a>(node: Stmt, locals: &Vec<PointerValue<'a> >, funcs: &Vec<Functio
             }
 
             builder.position_at_end(then_block);
-            if !gen_stmt(*then, locals, funcs, func_value, ret_block, context, builder) {
+            if !gen_stmt(*then, ret_value, locals, funcs, func_value, ret_block, context, builder) {
                 builder.build_unconditional_branch(end_block);
             }
 
@@ -105,7 +105,7 @@ fn gen_stmt<'a>(node: Stmt, locals: &Vec<PointerValue<'a> >, funcs: &Vec<Functio
         },
         StmtKind::Block(body) => {
             for stmt in body {
-                if gen_stmt(stmt, locals, funcs, func_value, ret_block, context, builder) {
+                if gen_stmt(stmt, ret_value, locals, funcs, func_value, ret_block, context, builder) {
                     return true;
                 }
             }
@@ -128,7 +128,7 @@ pub fn codegen<'a>(defs: DefGroup) {
 
     for func in defs.funcs {
         let mut param_types = vec![];
-        for index in 1 .. func.num_of_params + 1 {
+        for index in 0..func.num_of_params {
             param_types.push(gen_type(func.locals[index].typed, &context).into());
         }
 
@@ -138,27 +138,27 @@ pub fn codegen<'a>(defs: DefGroup) {
         let basic_block = context.append_basic_block(func_value, "");
         builder.position_at_end(basic_block);
 
+        let ret_value = builder.build_alloca(gen_type(func.typed, &context), "return");
         let mut locals = vec![];
-    
         for local in func.locals {
             locals.push(builder.build_alloca(gen_type(local.typed, &context), local.name.as_str()));
         }
 
         for (index, param) in func_value.get_param_iter().enumerate() {
             if let BasicValueEnum::IntValue(param) = param {
-                builder.build_store(locals[index + 1], param);
+                builder.build_store(locals[index], param);
             } else {
                 eprintln!("What's happening!?");
             }
         }
     
         let ret_block = context.append_basic_block(func_value, "");
-        if !gen_stmt(func.body, &locals, &funcs, func_value, ret_block, &context, &builder) {
+        if !gen_stmt(func.body, ret_value, &locals, &funcs, func_value, ret_block, &context, &builder) {
             builder.build_unconditional_branch(ret_block);
         }
     
         builder.position_at_end(ret_block);    
-        builder.build_return(Some(&builder.build_load(locals[0], "")));
+        builder.build_return(Some(&builder.build_load(ret_value, "")));
     }
 
     println!("{}", module.print_to_string().to_string());

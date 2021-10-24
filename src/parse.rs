@@ -66,11 +66,11 @@ impl<'a> CreatManager<'a> {
     fn find_func(&self, name: &str) -> Option<(usize, Type, &[Var])> {
         for (index, func) in self.funcs.iter().enumerate() {
             if func.name.as_str() == name {
-                return Some((index, func.typed, &func.locals[1 .. func.num_of_params + 1]));
+                return Some((index, func.typed, &func.locals[..func.num_of_params]));
             }
         }
         if name == self.name {
-            return Some((self.funcs.len(), self.typed, &self.locals[1 .. self.num_of_params + 1]));
+            return Some((self.funcs.len(), self.typed, &self.locals[..self.num_of_params]));
         }
         return None;
     }
@@ -439,7 +439,7 @@ impl DefGroup {
             let name = name.to_string();
             tokens.expected("(");
 
-            let mut manager = CreatManager { name: name.clone(), typed: Type::Int32, num_of_params: 0, locals: vec![ Var::new("return".to_string(), Type::Int32) ], funcs: funcs };
+            let mut manager = CreatManager { name: name.clone(), typed: Type::Int32, num_of_params: 0, locals: vec![], funcs: funcs };
             let mut is_first = true;
             let mut num_of_params = 0;
             while !tokens.is_equal(")") {
@@ -458,7 +458,6 @@ impl DefGroup {
             tokens.expected("{");
             manager.typed = typed;
             manager.num_of_params = num_of_params;
-            manager.locals[0].typed = typed;
             let body = Stmt::block_stmt(tokens, &mut manager);
     
             return Func {
