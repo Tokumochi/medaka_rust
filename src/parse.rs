@@ -7,13 +7,38 @@ pub enum Type {
 }
 
 impl Type {
-
+    // decl_spec -> "i8" | "32"
     fn decl_spec(tokens: &mut TokenGroup) -> Self {
-        if tokens.is_equal("i32") {
-            return Self::Int32;
+        if tokens.is_equal("i8") {
+            return Self::Int8;
         }
-        tokens.expected("i8");
-        return Self::Int8;
+        tokens.expected("i32");
+        return Self::Int32;
+    }
+}
+
+pub struct Struct {
+    name: String,
+    members: Vec<(String, Type)>,
+}
+
+impl Struct {
+    // decl_member -> ident ":" decl_spec
+    fn decl_member(&mut self, tokens: &mut TokenGroup) {
+        if let Some(name) = tokens.is_ident() {
+            let name = name.to_string();
+            for (member_name, _) in &self.members {
+                if *member_name == name {
+                    tokens.previous_token_error(format!("The member name \"{}\" already exists.", name));
+                    std::process::exit(1);
+                }
+            }
+            tokens.expected(":");
+            self.members.push((name.to_string(), Type::decl_spec(tokens)));
+        } else {
+            tokens.current_token_error("identifier is expected".to_string());
+            std::process::exit(1);
+        }
     }
 }
 
@@ -429,10 +454,39 @@ impl Stmt {
 }
 
 pub struct DefGroup {
+    pub strucs: Vec<Struct>,
     pub funcs: Vec<Func>,
 }
 
 impl DefGroup {
+    // struc -> ident "{" (declarator ("," declarator)*)? "}"
+    fn struc(tokens: &mut TokenGroup, funcs: &mut Vec<Func>) -> Struct {
+        if let Some(name) = tokens.is_ident() {
+            if let Some(_) = funcs.iter().find(|&func| func.name == name) {
+                let message = format!("The struct name \"{}\" already exists.", name);
+                tokens.previous_token_error(message);
+                std::process::exit(1);
+            }
+
+            let name = name.to_string();
+            tokens.expected("{");
+
+            let mut struc = Struct { name: name, members: vec![] };
+            let mut is_first = true;
+            while !tokens.is_equal("}") {
+                if is_first {
+                    is_first = false;
+                } else {
+                    tokens.expected(",");
+                }
+                struc.decl_member(tokens);
+            }
+
+            return struc;
+        }
+        tokens.current_token_error("identifier is expected".to_string());
+        std::process::exit(1);
+    }
     // func -> ident "(" (declarator ("," declarator)*)? ")" ":" decl_spec "{" block
     fn func(tokens: &mut TokenGroup, funcs: &mut Vec<Func>) -> Func {
         if let Some(name) = tokens.is_ident() {
@@ -479,14 +533,21 @@ impl DefGroup {
     }
 
     pub fn new(tokens: &mut TokenGroup) -> Self {
+        let mut strucs = vec![];
         let mut funcs = vec![];
         while !tokens.is_end() {
+            if tokens.is_equal("struct") {
+                let struc = DefGroup::struc(tokens, &mut funcs);
+                strucs.push(struc);
+                continue;
+            }
             tokens.expected("define");
             let func = DefGroup::func(tokens, &mut funcs);
             funcs.push(func);
         }
 
         return Self {
+            strucs: strucs,
             funcs: funcs,
         }
     }
