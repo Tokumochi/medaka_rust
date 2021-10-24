@@ -436,6 +436,12 @@ impl DefGroup {
     // func -> ident "(" (declarator ("," declarator)*)? ")" ":" decl_spec "{" block
     fn func(tokens: &mut TokenGroup, funcs: &mut Vec<Func>) -> Func {
         if let Some(name) = tokens.is_ident() {
+            if let Some(_) = funcs.iter().find(|&func| func.name == name) {
+                let message = format!("The function name \"{}\" already exists.", name);
+                tokens.previous_token_error(message);
+                std::process::exit(1);
+            }
+
             let name = name.to_string();
             tokens.expected("(");
 
