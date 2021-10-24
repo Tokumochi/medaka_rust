@@ -3,7 +3,15 @@ use inkwell::context::Context;
 use inkwell::builder::Builder;
 use inkwell::values::{BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue};
 use inkwell::IntPredicate::{EQ, NE, SLT, SLE};
-use super::parse::{UnaryKind, BinaryKind, ExprKind, Expr, StmtKind, Stmt, DefGroup};
+use inkwell::types::IntType;
+use super::parse::{Type, UnaryKind, BinaryKind, ExprKind, Expr, StmtKind, Stmt, DefGroup};
+
+fn gen_type<'a>(typed: Type, context: &'a Context) -> IntType {
+    match typed {
+        Type::Int32 => return context.i32_type(),
+        Type::Int8 => return context.i8_type(),
+    }
+}
 
 fn gen_expr<'a>(node: &Expr, locals: &Vec<PointerValue<'a> >, funcs: &Vec<FunctionValue<'a>>, context: &'a Context, builder: &'a Builder) -> IntValue<'a> {
 
@@ -39,6 +47,8 @@ fn gen_expr<'a>(node: &Expr, locals: &Vec<PointerValue<'a> >, funcs: &Vec<Functi
         ExprKind::Unary(kind, ohs) => {
             let ohs = gen_expr(&ohs, locals, funcs, context, builder);
             match kind {
+                UnaryKind::Sext => return builder.build_int_s_extend(ohs, gen_type(node.typed, context), ""),
+                UnaryKind::Trunc => return builder.build_int_truncate(ohs, gen_type(node.typed, context), ""),
                 UnaryKind::Neg => return builder.build_int_neg(ohs, ""),
             }
         },
@@ -118,11 +128,11 @@ pub fn codegen<'a>(defs: DefGroup) {
 
     for func in defs.funcs {
         let mut param_types = vec![];
-        for _ in 0..func.num_of_params {
-            param_types.push(context.i32_type().into());
+        for index in 1 .. func.num_of_params + 1 {
+            param_types.push(gen_type(func.locals[index].typed, &context).into());
         }
 
-        let func_value = module.add_function(&func.name, context.i32_type().fn_type(&param_types, false), None);
+        let func_value = module.add_function(&func.name, gen_type(func.typed, &context).fn_type(&param_types, false), None);
         funcs.push(func_value);
 
         let basic_block = context.append_basic_block(func_value, "");
@@ -131,7 +141,7 @@ pub fn codegen<'a>(defs: DefGroup) {
         let mut locals = vec![];
     
         for local in func.locals {
-            locals.push(builder.build_alloca(context.i32_type(), local.name.as_str()));
+            locals.push(builder.build_alloca(gen_type(local.typed, &context), local.name.as_str()));
         }
 
         for (index, param) in func_value.get_param_iter().enumerate() {

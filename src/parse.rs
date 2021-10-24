@@ -1,70 +1,95 @@
 use super::tokenize::TokenGroup;
 
+#[derive(Clone, Copy, PartialEq, PartialOrd)]
+pub enum Type {
+    Int8,
+    Int32,
+}
+
+impl Type {
+
+    fn decl_spec(tokens: &mut TokenGroup) -> Self {
+        if tokens.is_equal("i32") {
+            return Self::Int32;
+        }
+        tokens.expected("i8");
+        return Self::Int8;
+    }
+}
+
+#[derive(PartialEq)]
 pub struct Var {
     pub name: String,
+    pub typed: Type,
 }
 
 impl Var {
 
-    fn new(name: &str) -> Self {
+    fn new(name: String, typed: Type) -> Self {
         Self {
-            name: name.to_string(),
+            name: name,
+            typed: typed,
         }
     }
 }
 
 pub struct Func {
     pub name: String,
-    pub locals: Vec<Var>,
+    pub typed: Type,
     pub num_of_params: usize,
+    pub locals: Vec<Var>,
     pub body: Stmt,
 }
 
 // Manager of Function Creation
 struct CreatManager<'a> {
     name: String,
-    locals: Vec<Var>,
+    typed: Type,
     num_of_params: usize,
+    locals: Vec<Var>,
     funcs: &'a Vec<Func>,
 }
 
 impl<'a> CreatManager<'a> {
 
-    fn find_local_var(&self, name: &str) -> Option<usize> {
+    // return (index of var, type of var)
+    fn find_local_var(&self, name: &str) -> Option<(usize, Type)> {
         for (index, var) in self.locals.iter().enumerate() {
             if var.name == name {
-                return Some(index);
+                return Some((index, var.typed));
             }
         }
         return None;
     }
 
-    fn find_func(&self, name: &str) -> Option<(usize, usize)> {
+    // return (index of func, num of params, type of func)
+    fn find_func(&self, name: &str) -> Option<(usize, Type, &[Var])> {
         for (index, func) in self.funcs.iter().enumerate() {
             if func.name.as_str() == name {
-                return Some((index, func.num_of_params));
+                return Some((index, func.typed, &func.locals[1 .. func.num_of_params + 1]));
             }
         }
         if name == self.name {
-            return Some((self.funcs.len(), self.num_of_params));
+            return Some((self.funcs.len(), self.typed, &self.locals[1 .. self.num_of_params + 1]));
         }
         return None;
     }
 
-    fn new_local_var(&mut self, name: &str) -> usize {
-        let var = Var::new(name);
+    fn new_local_var(&mut self, name: String, typed: Type) -> usize {
+        let var = Var::new(name, typed);
         self.locals.push(var);
         return self.locals.len() - 1;
     }
 
-    // declarator -> ident ":" "i32"
-    fn declarator(&mut self, tokens: &mut TokenGroup) -> usize {
+    // declarator -> ident ":" decl_spec
+    fn declarator(&mut self, tokens: &mut TokenGroup) -> (usize, Type) {
         if let Some(name) = tokens.is_ident() {
-            if self.find_local_var(name) == None && self.find_func(name) == None {
-                let index = self.new_local_var(name);
+            let name = name.to_string();
+            if self.find_local_var(name.as_str()) == None && self.find_func(name.as_str()) == None && self.name != name {
                 tokens.expected(":");
-                tokens.expected("i32");
-                return index;
+                let typed = Type::decl_spec(tokens);
+                let index = self.new_local_var(name, typed);
+                return (index, typed);
             }
             let message = format!("The variable name \"{}\" already exists.", name);
             tokens.previous_token_error(message);
@@ -76,6 +101,8 @@ impl<'a> CreatManager<'a> {
 }
 
 pub enum UnaryKind {
+    Sext,
+    Trunc,
     Neg,
 }
 
@@ -101,6 +128,7 @@ pub enum ExprKind {
 
 pub struct Expr {
     pub kind: ExprKind,
+    pub typed: Type,
 }
 
 impl Expr {
@@ -108,36 +136,65 @@ impl Expr {
     fn new_num_node(value: u64) -> Self {
         Self {
             kind: ExprKind::Num(value),
+            typed: Type::Int32,
         }
     }
 
-    fn new_var_node(index: usize) -> Self {
+    fn new_var_node(index: usize, typed: Type) -> Self {
         Self {
             kind: ExprKind::Var(index),
+            typed: typed,
         }
     }
 
-    fn new_call_node(index: usize, args: Vec<Expr>) -> Self {
+    fn new_call_node(index: usize, typed: Type, args: Vec<Expr>) -> Self {
         Self {
             kind: ExprKind::Call(index, args),
+            typed: typed,
         }
     }
 
-    fn new_assign_node(index: usize, rhs: Self) -> Self {
+    fn new_assign_node(index: usize, typed: Type, rhs: Self) -> Self {
         Self {
-            kind: ExprKind::Assign(index, Box::new(rhs)),
+            kind: ExprKind::Assign(index, Box::new(Expr::new_type_conv_node(typed, rhs))),
+            typed: typed,
+        }
+    }
+
+    fn new_type_conv_node(typed: Type, node: Self) -> Self {
+        if typed > node.typed {
+            Self { kind: ExprKind::Unary(UnaryKind::Sext, Box::new(node)), typed: typed, }
+        } else if typed < node.typed {
+            Self { kind: ExprKind::Unary(UnaryKind::Trunc, Box::new(node)), typed: typed, }
+        } else {
+            node
         }
     }
     
     fn new_unary_node(kind: UnaryKind, ohs: Self) -> Self {
+        let typed = ohs.typed.clone();
         Self {
             kind: ExprKind::Unary(kind, Box::new(ohs)),
+            typed: typed,
         }
     }
 
     fn new_binary_node(kind: BinaryKind, lhs: Self, rhs: Self) -> Self {
-        Self {
+        let lhs = if lhs.typed > rhs.typed {
+            Self { kind: ExprKind::Unary(UnaryKind::Trunc, Box::new(lhs)), typed: rhs.typed, }
+        } else {
+            lhs
+        };
+        let rhs = if lhs.typed < rhs.typed {
+            Self { kind: ExprKind::Unary(UnaryKind::Trunc, Box::new(rhs)), typed: lhs.typed, }
+        } else {
+            rhs
+        };
+
+        let typed = lhs.typed;
+        return Self {
             kind: ExprKind::Binary(kind, Box::new(lhs), Box::new(rhs)),
+            typed: typed,
         }
     }
 
@@ -151,7 +208,7 @@ impl Expr {
         let node = Expr::equality(tokens, manager);
         if tokens.is_equal("=") {
             if let ExprKind::Var(index) = node.kind {
-                return Expr::new_assign_node(index, Expr::assign(tokens, manager));
+                return Expr::new_assign_node(index, node.typed, Expr::assign(tokens, manager));
             } else {
                 tokens.previous_token_error("The left side must be variable.".to_string());
                 std::process::exit(1);
@@ -253,28 +310,26 @@ impl Expr {
 
         if let Some(name) = tokens.is_ident() {
             // call
-            if let Some((index, num_of_params)) = manager.find_func(name) {
+            if let Some((index, typed, params)) = manager.find_func(name) {
                 let name = name.to_string();
                 tokens.expected("(");
                 let mut args = vec![];
-                let mut is_first = true;
-                while !tokens.is_equal(")") {
-                    if is_first {
-                        is_first = false;
-                    } else {
+                for (index, param) in params.iter().enumerate() {
+                    if tokens.is_equal(")") {
+                        tokens.previous_token_error(format!("The function \"{}\" needs {} args, but found only {} args.", name, params.len(), index));
+                        std::process::exit(1);
+                    }
+                    if index > 0 {
                         tokens.expected(",");
                     }
-                    args.push(Expr::expr(tokens, manager));
+                    args.push(Expr::new_type_conv_node(param.typed, Expr::expr(tokens, manager)));
                 }
-                if args.len() != num_of_params {
-                    tokens.previous_token_error(format!("The function \"{}\" needs {} args, but found {} args.", name, num_of_params, args.len()));
-                    std::process::exit(1);
-                }
-                return Expr::new_call_node(index, args);
+                tokens.expected(")");
+                return Expr::new_call_node(index, typed, args);
             }
             // variable
-            if let Some(index) = manager.find_local_var(name) {
-                return Expr::new_var_node(index);
+            if let Some((index, typed)) = manager.find_local_var(name) {
+                return Expr::new_var_node(index, typed);
             }
 
             let message = format!("The variable name \"{}\" doesn't exists.", name);
@@ -309,7 +364,7 @@ impl Stmt {
     //       | expr_stmt
     fn stmt(tokens: &mut TokenGroup, manager: &mut CreatManager) -> Self {
         if tokens.is_equal("return") {
-            let node = Self { kind: StmtKind::Ret(Expr::expr(tokens, manager)) };
+            let node = Self { kind: StmtKind::Ret(Expr::new_type_conv_node(manager.typed, Expr::expr(tokens, manager))) };
             tokens.expected(";");
             return node;
         }
@@ -352,9 +407,9 @@ impl Stmt {
             } else {
                 tokens.expected(",");
             }
-            let index = manager.declarator(tokens);
+            let (index, typed) = manager.declarator(tokens);
             if tokens.is_equal("=") {
-                body.push(Self { kind: StmtKind::ExprStmt(Expr::new_assign_node(index, Expr::expr(tokens, manager))) });
+                body.push(Self { kind: StmtKind::ExprStmt(Expr::new_assign_node(index, typed, Expr::expr(tokens, manager))) });
             }
         }
         return Self {
@@ -378,13 +433,13 @@ pub struct DefGroup {
 }
 
 impl DefGroup {
-    // func -> ident "(" ")" ":" "i32" "{" block
+    // func -> ident "(" (declarator ("," declarator)*)? ")" ":" decl_spec "{" block
     fn func(tokens: &mut TokenGroup, funcs: &mut Vec<Func>) -> Func {
         if let Some(name) = tokens.is_ident() {
             let name = name.to_string();
             tokens.expected("(");
 
-            let mut manager = CreatManager { name: name.clone(), locals: vec![ Var::new("return") ],  num_of_params: 0, funcs: funcs };
+            let mut manager = CreatManager { name: name.clone(), typed: Type::Int32, num_of_params: 0, locals: vec![ Var::new("return".to_string(), Type::Int32) ], funcs: funcs };
             let mut is_first = true;
             let mut num_of_params = 0;
             while !tokens.is_equal(")") {
@@ -398,16 +453,19 @@ impl DefGroup {
             }
 
             tokens.expected(":");
-            tokens.expected("i32");
-            tokens.expected("{");
+            let typed = Type::decl_spec(tokens);
 
+            tokens.expected("{");
+            manager.typed = typed;
             manager.num_of_params = num_of_params;
+            manager.locals[0].typed = typed;
             let body = Stmt::block_stmt(tokens, &mut manager);
     
             return Func {
                 name: name,
-                locals: manager.locals,
                 num_of_params: num_of_params,
+                typed: typed,
+                locals: manager.locals,
                 body: body,
             }
         }
