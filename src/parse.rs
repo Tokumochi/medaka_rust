@@ -83,8 +83,8 @@ pub struct Func {
     pub body: Stmt,
 }
 
-// Manager of Function Creation
-struct CreatManager<'a> {
+// Parsing Manager
+struct ParsingManager<'a> {
     name: String,
     typed: Type,
     num_of_params: usize,
@@ -93,7 +93,7 @@ struct CreatManager<'a> {
     funcs: &'a Vec<Func>,
 }
 
-impl<'a> CreatManager<'a> {
+impl<'a> ParsingManager<'a> {
 
     // return (index of var, type of var)
     fn find_local_var(&self, name: &str) -> Option<(usize, Type)> {
@@ -257,12 +257,12 @@ impl Expr {
     }
 
     // expr -> assign
-    fn expr(tokens: &mut TokenGroup, manager: &CreatManager) -> Self {
+    fn expr(tokens: &mut TokenGroup, manager: &ParsingManager) -> Self {
         Expr::assign(tokens, manager)
     }
 
     // assign -> equality ("=" assign)?
-    fn assign(tokens: &mut TokenGroup, manager: &CreatManager) -> Self {
+    fn assign(tokens: &mut TokenGroup, manager: &ParsingManager) -> Self {
         let node = Expr::equality(tokens, manager);
         if tokens.is_equal("=") {
             if let ExprKind::Var(index) = node.kind {
@@ -277,7 +277,7 @@ impl Expr {
     }
 
     // equality -> relational ("==" relational | "!=" relational)*
-    fn equality(tokens: &mut TokenGroup, manager: &CreatManager) -> Self {
+    fn equality(tokens: &mut TokenGroup, manager: &ParsingManager) -> Self {
         let mut node = Expr::relational(tokens, manager);
         loop {
             if tokens.is_equal("==") {
@@ -293,7 +293,7 @@ impl Expr {
     }
 
     // relational -> add ("<" add | "<=" add | ">" add | ">=" add)*
-    fn relational(tokens: &mut TokenGroup, manager: &CreatManager) -> Self {
+    fn relational(tokens: &mut TokenGroup, manager: &ParsingManager) -> Self {
         let mut node = Expr::add(tokens, manager);
         loop {
             if tokens.is_equal("<") {
@@ -317,7 +317,7 @@ impl Expr {
     }
     
     // add -> mul ("+" mul | "-" mul)*
-    fn add(tokens: &mut TokenGroup, manager: &CreatManager) -> Self {
+    fn add(tokens: &mut TokenGroup, manager: &ParsingManager) -> Self {
         let mut node = Expr::mul(tokens, manager);
         loop {
             if tokens.is_equal("+") {
@@ -333,7 +333,7 @@ impl Expr {
     }
     
     // mul -> unary ("*" unary | "/" unary)*
-    fn mul(tokens: &mut TokenGroup, manager: &CreatManager) -> Self {
+    fn mul(tokens: &mut TokenGroup, manager: &ParsingManager) -> Self {
         let mut node = Expr::unary(tokens, manager);
         loop {
             if tokens.is_equal("*") {
@@ -349,7 +349,7 @@ impl Expr {
     }
 
     // unary -> ("+" | "-") unary | primary
-    fn unary(tokens: &mut TokenGroup, manager: &CreatManager) -> Self {
+    fn unary(tokens: &mut TokenGroup, manager: &ParsingManager) -> Self {
         if tokens.is_equal("+") {
             return Expr::unary(tokens, manager);
         }
@@ -360,7 +360,7 @@ impl Expr {
     }
     
     // primary -> "(" expr ")" | ident ("(" (expr ("," expr)*)? ")")? | num
-    fn primary(tokens: &mut TokenGroup, manager: &CreatManager) -> Self {
+    fn primary(tokens: &mut TokenGroup, manager: &ParsingManager) -> Self {
         if tokens.is_equal("(") {
             let node = Expr::expr(tokens, manager);
             tokens.expected(")");
@@ -382,7 +382,7 @@ impl Expr {
                         tokens.expected(",");
                     }
                     let arg = Expr::expr(tokens, manager);
-                    args.push(Expr::new_type_conv_node(&tokens.get_current_token(), param.typed, arg));
+                    args.push(Expr::new_type_conv_node(&tokens.get_previous_token(), param.typed, arg));
                 }
                 tokens.expected(")");
                 return Expr::new_call_node(index, typed, args);
@@ -422,7 +422,7 @@ impl Stmt {
     //       | "if" expr ":" stmt ("else" stmt)?
     //       | "{" block_stmt
     //       | expr_stmt
-    fn stmt(tokens: &mut TokenGroup, manager: &mut CreatManager) -> Self {
+    fn stmt(tokens: &mut TokenGroup, manager: &mut ParsingManager) -> Self {
         if tokens.is_equal("return") {
             let ret = Expr::expr(tokens, manager);
             let node = Self { kind: StmtKind::Ret(Expr::new_type_conv_node(&tokens.get_previous_token(), manager.typed, ret)) };
@@ -450,7 +450,7 @@ impl Stmt {
     }
 
     // block -> stmt* "}"
-    fn block_stmt(tokens: &mut TokenGroup, manager: &mut CreatManager) -> Self {
+    fn block_stmt(tokens: &mut TokenGroup, manager: &mut ParsingManager) -> Self {
         let mut body = vec![];
         while !tokens.is_equal("}") {
             body.push(Stmt::stmt(tokens, manager));
@@ -459,7 +459,7 @@ impl Stmt {
     }
 
     // declaration -> (declarator ("=" expr)? ("," declarator ("=" expr)?)*)? ";"
-    fn declaration(tokens: &mut TokenGroup, manager: &mut CreatManager) -> Self {
+    fn declaration(tokens: &mut TokenGroup, manager: &mut ParsingManager) -> Self {
         let mut body = vec![];
         let mut is_first = true;
         while !tokens.is_equal(";") {
@@ -480,7 +480,7 @@ impl Stmt {
     }
 
     // expr_stmt -> "dec" declaration |　expr ";"
-    fn expr_stmt(tokens: &mut TokenGroup, manager: &mut CreatManager) -> Self {
+    fn expr_stmt(tokens: &mut TokenGroup, manager: &mut ParsingManager) -> Self {
         if tokens.is_equal("dec") {
             return Stmt::declaration(tokens, manager);
         }
@@ -553,7 +553,7 @@ impl DefGroup {
             let name = name.to_string();
             tokens.expected("(");
 
-            let mut manager = CreatManager { name: name.clone(), typed: Type::Int(IntType::Int32), num_of_params: 0, locals: vec![], funcs: funcs, strucs: strucs };
+            let mut manager = ParsingManager { name: name.clone(), typed: Type::Int(IntType::Int32), num_of_params: 0, locals: vec![], funcs: funcs, strucs: strucs };
             let mut is_first = true;
             let mut num_of_params = 0;
             while !tokens.is_equal(")") {
