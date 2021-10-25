@@ -11,12 +11,14 @@ fn is_alpha(chara: &str) -> bool {
     return ('a' <= chara && chara <= 'z') || ('A' <= chara && chara <= 'Z');
 }
 
+#[derive(Clone, Copy)]
 enum TokenKind<'a> {
     Num(u64),
     Opera(&'a str),
     Ident(&'a str),
 }
-struct Token<'a> {
+#[derive(Clone, Copy)]
+pub struct Token<'a> {
     kind: TokenKind<'a>,
     line: &'a str,
     pos: usize,
@@ -52,7 +54,7 @@ impl<'a> Token<'a> {
         }
     }
 
-    fn token_error(&self, message: String) {
+    pub fn token_error(&self, message: String) {
         eprintln!("{}", self.line);
         eprintln!("{0:>1$}{0:~>2$}", "", self.pos, self.len);
         eprintln!("{0:>1$}", "^", self.pos + 1);
@@ -154,6 +156,18 @@ impl<'a> TokenGroup<'a> {
         }
     
         return tokens;
+    }
+
+    pub fn get_current_token(&self) -> Token {
+        return self.tokens[self.point];
+    }
+
+    pub fn get_previous_token(&self) -> Token {
+        if self.point == 0 {
+            eprintln!("What is happening in mochi code!?");
+            std::process::exit(1);
+        }
+        return self.tokens[self.point - 1];
     }
 
     pub fn current_token_error(&self, message: String) {

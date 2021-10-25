@@ -1,30 +1,47 @@
+use super::tokenize::Token;
 use super::tokenize::TokenGroup;
 
-#[derive(Clone, Copy, PartialEq, PartialOrd)]
-pub enum Type {
+#[derive(PartialEq, PartialOrd, Clone, Copy)]
+pub enum IntType {
     Int8,
     Int32,
 }
 
+#[derive(PartialEq, PartialOrd, Clone, Copy)]
+pub enum Type {
+    Int(IntType),
+    Struct(usize),
+}
+
 impl Type {
-    // decl_spec -> "i8" | "32"
-    fn decl_spec(tokens: &mut TokenGroup) -> Self {
+    // decl_spec -> "i8" | "32" | struct_name
+    fn decl_spec(tokens: &mut TokenGroup, strucs: &Vec<Struct>) -> Self {
         if tokens.is_equal("i8") {
-            return Self::Int8;
+            return Self::Int(IntType::Int8);
         }
-        tokens.expected("i32");
-        return Self::Int32;
+        if tokens.is_equal("i32") {
+            return Self::Int(IntType::Int32);
+        }
+        if let Some(name) = tokens.is_ident() {
+            for (index, struc) in strucs.iter().enumerate() {
+                if struc.name == name {
+                    return Self::Struct(index);
+                }
+            }
+        }
+        tokens.current_token_error("type name is expected".to_string());
+        std::process::exit(1);
     }
 }
 
 pub struct Struct {
     name: String,
-    members: Vec<(String, Type)>,
+    pub members: Vec<(String, Type)>,
 }
 
 impl Struct {
     // decl_member -> ident ":" decl_spec
-    fn decl_member(&mut self, tokens: &mut TokenGroup) {
+    fn decl_member(&mut self, tokens: &mut TokenGroup, strucs: &Vec<Struct>) {
         if let Some(name) = tokens.is_ident() {
             let name = name.to_string();
             for (member_name, _) in &self.members {
@@ -34,7 +51,7 @@ impl Struct {
                 }
             }
             tokens.expected(":");
-            self.members.push((name.to_string(), Type::decl_spec(tokens)));
+            self.members.push((name.to_string(), Type::decl_spec(tokens, strucs)));
         } else {
             tokens.current_token_error("identifier is expected".to_string());
             std::process::exit(1);
@@ -72,6 +89,7 @@ struct CreatManager<'a> {
     typed: Type,
     num_of_params: usize,
     locals: Vec<Var>,
+    strucs: &'a Vec<Struct>,
     funcs: &'a Vec<Func>,
 }
 
@@ -87,7 +105,7 @@ impl<'a> CreatManager<'a> {
         return None;
     }
 
-    // return (index of func, num of params, type of func)
+    // return (index of func, type of func, param vars)
     fn find_func(&self, name: &str) -> Option<(usize, Type, &[Var])> {
         for (index, func) in self.funcs.iter().enumerate() {
             if func.name.as_str() == name {
@@ -112,7 +130,7 @@ impl<'a> CreatManager<'a> {
             let name = name.to_string();
             if self.find_local_var(name.as_str()) == None && self.find_func(name.as_str()) == None && self.name != name {
                 tokens.expected(":");
-                let typed = Type::decl_spec(tokens);
+                let typed = Type::decl_spec(tokens, self.strucs);
                 let index = self.new_local_var(name, typed);
                 return (index, typed);
             }
@@ -161,7 +179,7 @@ impl Expr {
     fn new_num_node(value: u64) -> Self {
         Self {
             kind: ExprKind::Num(value),
-            typed: Type::Int32,
+            typed: Type::Int(IntType::Int32),
         }
     }
 
@@ -179,21 +197,36 @@ impl Expr {
         }
     }
 
-    fn new_assign_node(index: usize, typed: Type, rhs: Self) -> Self {
+    fn new_assign_node(token: &Token, index: usize, typed: Type, rhs: Self) -> Self {
         Self {
-            kind: ExprKind::Assign(index, Box::new(Expr::new_type_conv_node(typed, rhs))),
+            kind: ExprKind::Assign(index, Box::new(Expr::new_type_conv_node(token, typed, rhs))),
             typed: typed,
         }
     }
 
-    fn new_type_conv_node(typed: Type, node: Self) -> Self {
-        if typed > node.typed {
-            Self { kind: ExprKind::Unary(UnaryKind::Sext, Box::new(node)), typed: typed, }
-        } else if typed < node.typed {
-            Self { kind: ExprKind::Unary(UnaryKind::Trunc, Box::new(node)), typed: typed, }
-        } else {
-            node
+    fn new_type_conv_node(token: &Token, typed: Type, node: Self) -> Self {
+        match typed {
+            Type::Int(int_typed) => {
+                if let Type::Int(node_int_typed) = node.typed {
+                    if int_typed > node_int_typed {
+                        return Self { kind: ExprKind::Unary(UnaryKind::Sext, Box::new(node)), typed: typed };
+                    } else if int_typed < node_int_typed {
+                        return Self { kind: ExprKind::Unary(UnaryKind::Trunc, Box::new(node)), typed: typed };
+                    } else {
+                        return node;
+                    }
+                }
+            },
+            Type::Struct(struct_index) => {
+                if let Type::Struct(node_struct_index) = node.typed {
+                    if struct_index == node_struct_index {
+                        return node;
+                    }
+                }
+            }
         }
+        token.token_error("type mismatch".to_string());
+        std::process::exit(1);
     }
     
     fn new_unary_node(kind: UnaryKind, ohs: Self) -> Self {
@@ -233,7 +266,8 @@ impl Expr {
         let node = Expr::equality(tokens, manager);
         if tokens.is_equal("=") {
             if let ExprKind::Var(index) = node.kind {
-                return Expr::new_assign_node(index, node.typed, Expr::assign(tokens, manager));
+                let rhs = Expr::assign(tokens, manager);
+                return Expr::new_assign_node(&tokens.get_previous_token(), index, node.typed, rhs);
             } else {
                 tokens.previous_token_error("The left side must be variable.".to_string());
                 std::process::exit(1);
@@ -347,7 +381,8 @@ impl Expr {
                     if index > 0 {
                         tokens.expected(",");
                     }
-                    args.push(Expr::new_type_conv_node(param.typed, Expr::expr(tokens, manager)));
+                    let arg = Expr::expr(tokens, manager);
+                    args.push(Expr::new_type_conv_node(&tokens.get_current_token(), param.typed, arg));
                 }
                 tokens.expected(")");
                 return Expr::new_call_node(index, typed, args);
@@ -389,7 +424,8 @@ impl Stmt {
     //       | expr_stmt
     fn stmt(tokens: &mut TokenGroup, manager: &mut CreatManager) -> Self {
         if tokens.is_equal("return") {
-            let node = Self { kind: StmtKind::Ret(Expr::new_type_conv_node(manager.typed, Expr::expr(tokens, manager))) };
+            let ret = Expr::expr(tokens, manager);
+            let node = Self { kind: StmtKind::Ret(Expr::new_type_conv_node(&tokens.get_previous_token(), manager.typed, ret)) };
             tokens.expected(";");
             return node;
         }
@@ -434,7 +470,8 @@ impl Stmt {
             }
             let (index, typed) = manager.declarator(tokens);
             if tokens.is_equal("=") {
-                body.push(Self { kind: StmtKind::ExprStmt(Expr::new_assign_node(index, typed, Expr::expr(tokens, manager))) });
+                let rhs = Expr::expr(tokens, manager);
+                body.push(Self { kind: StmtKind::ExprStmt(Expr::new_assign_node(&tokens.get_previous_token(), index, typed, rhs)) });
             }
         }
         return Self {
@@ -459,10 +496,27 @@ pub struct DefGroup {
 }
 
 impl DefGroup {
-    // struc -> ident "{" (declarator ("," declarator)*)? "}"
-    fn struc(tokens: &mut TokenGroup, funcs: &mut Vec<Func>) -> Struct {
+
+    fn is_exist_struct(strucs: &Vec<Struct>, name: &str) -> bool {
+        if let Some(_) = strucs.iter().find(|&struc| struc.name == name) {
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    fn is_exist_func(funcs: &Vec<Func>, name: &str) -> bool {
+        if let Some(_) = funcs.iter().find(|&func| func.name == name) {
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    // struc -> ident "{" (decl_member ("," decl_member)*)? "}"
+    fn struc(tokens: &mut TokenGroup, funcs: &Vec<Func>, strucs: &Vec<Struct>) -> Struct {
         if let Some(name) = tokens.is_ident() {
-            if let Some(_) = funcs.iter().find(|&func| func.name == name) {
+            if DefGroup::is_exist_struct(strucs, name) || DefGroup::is_exist_func(funcs, name) {
                 let message = format!("The struct name \"{}\" already exists.", name);
                 tokens.previous_token_error(message);
                 std::process::exit(1);
@@ -479,7 +533,7 @@ impl DefGroup {
                 } else {
                     tokens.expected(",");
                 }
-                struc.decl_member(tokens);
+                struc.decl_member(tokens, &strucs);
             }
 
             return struc;
@@ -488,9 +542,9 @@ impl DefGroup {
         std::process::exit(1);
     }
     // func -> ident "(" (declarator ("," declarator)*)? ")" ":" decl_spec "{" block
-    fn func(tokens: &mut TokenGroup, funcs: &mut Vec<Func>) -> Func {
+    fn func(tokens: &mut TokenGroup, funcs: &Vec<Func>, strucs: &Vec<Struct>) -> Func {
         if let Some(name) = tokens.is_ident() {
-            if let Some(_) = funcs.iter().find(|&func| func.name == name) {
+            if DefGroup::is_exist_struct(strucs, name) || DefGroup::is_exist_func(funcs, name) {
                 let message = format!("The function name \"{}\" already exists.", name);
                 tokens.previous_token_error(message);
                 std::process::exit(1);
@@ -499,7 +553,7 @@ impl DefGroup {
             let name = name.to_string();
             tokens.expected("(");
 
-            let mut manager = CreatManager { name: name.clone(), typed: Type::Int32, num_of_params: 0, locals: vec![], funcs: funcs };
+            let mut manager = CreatManager { name: name.clone(), typed: Type::Int(IntType::Int32), num_of_params: 0, locals: vec![], funcs: funcs, strucs: strucs };
             let mut is_first = true;
             let mut num_of_params = 0;
             while !tokens.is_equal(")") {
@@ -513,7 +567,7 @@ impl DefGroup {
             }
 
             tokens.expected(":");
-            let typed = Type::decl_spec(tokens);
+            let typed = Type::decl_spec(tokens, strucs);
 
             tokens.expected("{");
             manager.typed = typed;
@@ -537,12 +591,12 @@ impl DefGroup {
         let mut funcs = vec![];
         while !tokens.is_end() {
             if tokens.is_equal("struct") {
-                let struc = DefGroup::struc(tokens, &mut funcs);
+                let struc = DefGroup::struc(tokens, &funcs, &mut strucs);
                 strucs.push(struc);
                 continue;
             }
             tokens.expected("define");
-            let func = DefGroup::func(tokens, &mut funcs);
+            let func = DefGroup::func(tokens, &funcs, &strucs);
             funcs.push(func);
         }
 

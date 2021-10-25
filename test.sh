@@ -57,6 +57,6 @@ assert 15 "define add5(a: i32, b: i32, c: i32, d: i32, e: i32): i32 { return a+b
 assert 89 "define fibo(a: i32): i32 { if a<=1: return 1; return fibo(a-1) + fibo(a-2); } define main(): i32 { return fibo(10); }"
 assert 56 "define main(): i32 { dec a: i32 = 22, b: i8 = 34; a = a + b; b = a; return b; }"
 assert 56 "define add(a: i8, b: i32): i8 { return a + b; } define main(): i32 { dec a: i32 = 22, b: i8 = 34; return add(a, b); }"
-assert 10 "struct struc { a: i32, b: i8 } define main(): i32 { return 10; }"
+assert 10 "struct struc { a: i32, b: i8 } define main(): i32 { dec a: struc; return 10; }"
 
 echo OK 
