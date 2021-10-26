@@ -7,7 +7,7 @@ pub enum IntType {
     Int32,
 }
 
-#[derive(PartialEq, PartialOrd, Clone, Copy)]
+#[derive(PartialEq, Clone, Copy)]
 pub enum Type {
     Int(IntType),
     Struct(usize),
@@ -230,30 +230,30 @@ impl Expr {
     }
     
     fn new_unary_node(kind: UnaryKind, ohs: Self) -> Self {
-        let typed = ohs.typed.clone();
         Self {
+            typed: ohs.typed,
             kind: ExprKind::Unary(kind, Box::new(ohs)),
-            typed: typed,
         }
     }
 
-    fn new_binary_node(kind: BinaryKind, lhs: Self, rhs: Self) -> Self {
-        let lhs = if lhs.typed > rhs.typed {
-            Self { kind: ExprKind::Unary(UnaryKind::Trunc, Box::new(lhs)), typed: rhs.typed, }
-        } else {
-            lhs
-        };
-        let rhs = if lhs.typed < rhs.typed {
-            Self { kind: ExprKind::Unary(UnaryKind::Trunc, Box::new(rhs)), typed: lhs.typed, }
-        } else {
-            rhs
-        };
-
-        let typed = lhs.typed;
-        return Self {
-            kind: ExprKind::Binary(kind, Box::new(lhs), Box::new(rhs)),
-            typed: typed,
+    fn new_binary_node(token: &Token, kind: BinaryKind, lhs: Self, rhs: Self) -> Self {
+        let mut lhs = lhs;
+        let mut rhs = rhs;
+        if let Type::Int(lhs_int_typed) = lhs.typed {
+            if let Type::Int(rhs_int_typed) = rhs.typed {
+                if lhs_int_typed > rhs_int_typed {
+                    lhs = Self { kind: ExprKind::Unary(UnaryKind::Trunc, Box::new(lhs)), typed: rhs.typed, };
+                } else  if lhs_int_typed < rhs_int_typed {
+                    rhs = Self { kind: ExprKind::Unary(UnaryKind::Trunc, Box::new(rhs)), typed: lhs.typed, }
+                }
+                return Self {
+                    typed: lhs.typed,
+                    kind: ExprKind::Binary(kind, Box::new(lhs), Box::new(rhs)),
+                };
+            }
         }
+        token.token_error("type mismatch".to_string());
+        std::process::exit(1);
     }
 
     // expr -> assign
@@ -281,11 +281,13 @@ impl Expr {
         let mut node = Expr::relational(tokens, manager);
         loop {
             if tokens.is_equal("==") {
-                node = Expr::new_binary_node(BinaryKind::Equ, node, Expr::relational(tokens, manager));
+                let rhs = Expr::relational(tokens, manager);
+                node = Expr::new_binary_node(&tokens.get_previous_token(), BinaryKind::Equ, node, rhs);
                 continue;
             }
             if tokens.is_equal("!=") {
-                node = Expr::new_binary_node(BinaryKind::Neq, node, Expr::relational(tokens, manager));
+                let rhs = Expr::relational(tokens, manager);
+                node = Expr::new_binary_node(&tokens.get_previous_token(), BinaryKind::Neq, node, rhs);
                 continue;
             }
             return node;
@@ -297,19 +299,23 @@ impl Expr {
         let mut node = Expr::add(tokens, manager);
         loop {
             if tokens.is_equal("<") {
-                node = Expr::new_binary_node(BinaryKind::Les, node, Expr::add(tokens, manager));
+                let rhs = Expr::add(tokens, manager);
+                node = Expr::new_binary_node(&tokens.get_previous_token(), BinaryKind::Les, node, rhs);
                 continue;
             }
             if tokens.is_equal("<=") {
-                node = Expr::new_binary_node(BinaryKind::Leq, node, Expr::add(tokens, manager));
+                let rhs = Expr::add(tokens, manager);
+                node = Expr::new_binary_node(&tokens.get_previous_token(), BinaryKind::Leq, node, rhs);
                 continue;
             }
             if tokens.is_equal(">") {
-                node = Expr::new_binary_node(BinaryKind::Les, Expr::add(tokens, manager), node);
+                let lhs = Expr::add(tokens, manager);
+                node = Expr::new_binary_node(&tokens.get_previous_token(), BinaryKind::Les, lhs, node);
                 continue;
             }
             if tokens.is_equal(">=") {
-                node = Expr::new_binary_node(BinaryKind::Leq, Expr::add(tokens, manager), node);
+                let lhs = Expr::add(tokens, manager);
+                node = Expr::new_binary_node(&tokens.get_previous_token(), BinaryKind::Leq, lhs, node);
                 continue;
             }
             return node;
@@ -321,11 +327,13 @@ impl Expr {
         let mut node = Expr::mul(tokens, manager);
         loop {
             if tokens.is_equal("+") {
-                node = Expr::new_binary_node(BinaryKind::Add, node, Expr::mul(tokens, manager));
+                let rhs = Expr::mul(tokens, manager);
+                node = Expr::new_binary_node(&tokens.get_previous_token(), BinaryKind::Add, node, rhs);
                 continue;
             }
             if tokens.is_equal("-") {
-                node = Expr::new_binary_node(BinaryKind::Sub, node, Expr::mul(tokens, manager));
+                let rhs = Expr::mul(tokens, manager);
+                node = Expr::new_binary_node(&tokens.get_previous_token(), BinaryKind::Sub, node, rhs);
                 continue;
             }
             return node;
@@ -337,11 +345,13 @@ impl Expr {
         let mut node = Expr::unary(tokens, manager);
         loop {
             if tokens.is_equal("*") {
-                node = Expr::new_binary_node(BinaryKind::Mul, node, Expr::unary(tokens, manager));
+                let rhs = Expr::unary(tokens, manager);
+                node = Expr::new_binary_node(&tokens.get_previous_token(), BinaryKind::Mul, node, rhs);
                 continue;
             }
             if tokens.is_equal("/") {
-                node = Expr::new_binary_node(BinaryKind::Div, node, Expr::unary(tokens, manager));
+                let rhs = Expr::unary(tokens, manager);
+                node = Expr::new_binary_node(&tokens.get_previous_token(), BinaryKind::Div, node, rhs);
                 continue;
             }
             return node;
@@ -354,7 +364,12 @@ impl Expr {
             return Expr::unary(tokens, manager);
         }
         if tokens.is_equal("-") {
-            return Expr::new_unary_node(UnaryKind::Neg, Expr::unary(tokens, manager));
+            let ohs = Expr::unary(tokens, manager);
+            if let Type::Int(_) = ohs.typed {
+                return Expr::new_unary_node(UnaryKind::Neg, ohs);
+            }
+            tokens.previous_token_error("negative operation is for int type".to_string());
+            std::process::exit(1);
         }
         return Expr::primary(tokens, manager);
     }
@@ -432,14 +447,18 @@ impl Stmt {
 
         if tokens.is_equal("if") {
             let cond = Expr::expr(tokens, manager);
-            tokens.expected(":");
-            let then = Stmt::stmt(tokens, manager);
-            if tokens.is_equal("else") {
-                let els = Stmt::stmt(tokens, manager);
-                return Self { kind: StmtKind::If(cond, Box::new(then), Some(Box::new(els))) };
-            } else {
-                return Self { kind: StmtKind::If(cond, Box::new(then), None) };
+            if let Type::Int(_) = cond.typed {
+                tokens.expected(":");
+                let then = Stmt::stmt(tokens, manager);
+                if tokens.is_equal("else") {
+                    let els = Stmt::stmt(tokens, manager);
+                    return Self { kind: StmtKind::If(cond, Box::new(then), Some(Box::new(els))) };
+                } else {
+                    return Self { kind: StmtKind::If(cond, Box::new(then), None) };
+                }
             }
+            tokens.previous_token_error("if-condition is for int type".to_string());
+            std::process::exit(1);
         }
 
         if tokens.is_equal("{") {

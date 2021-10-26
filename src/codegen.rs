@@ -1,7 +1,7 @@
 use inkwell::basic_block::BasicBlock;
 use inkwell::context::Context;
 use inkwell::builder::Builder;
-use inkwell::values::{BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue};
+use inkwell::values::{BasicValue, BasicValueEnum, FunctionValue, PointerValue};
 use inkwell::IntPredicate::{EQ, NE, SLT, SLE};
 use inkwell::types::{self, StructType, BasicType, BasicTypeEnum};
 
@@ -28,18 +28,14 @@ fn gen_int_type<'a>(typed: &Type, strucs: &Vec<types::StructType<'a>>, context: 
     std::process::exit(1);
 }
 
-fn gen_expr<'a>(node: &Expr, locals: &Vec<PointerValue<'a> >, strucs: &Vec<types::StructType<'a>>, funcs: &Vec<FunctionValue<'a>>, context: &'a Context, builder: &'a Builder) -> IntValue<'a> {
+fn gen_expr<'a>(node: &Expr, locals: &Vec<PointerValue<'a> >, strucs: &Vec<types::StructType<'a>>, funcs: &Vec<FunctionValue<'a>>, context: &'a Context, builder: &'a Builder) -> BasicValueEnum<'a> {
 
     match &node.kind {
         ExprKind::Num(value) => {
-            return context.i32_type().const_int(*value, false);
+            return context.i32_type().const_int(*value, false).into();
         },
         ExprKind::Var(index) => {
-            if let BasicValueEnum::IntValue(var) = builder.build_load(locals[*index], "") {
-                return var;
-            }
-            eprintln!("What's happening!?");
-            std::process::exit(1);
+            return builder.build_load(locals[*index], "");
         },
         ExprKind::Call(index, args) => {
             if funcs[*index].count_params() as usize == args.len() {
@@ -47,7 +43,7 @@ fn gen_expr<'a>(node: &Expr, locals: &Vec<PointerValue<'a> >, strucs: &Vec<types
                 for arg in args {
                     arg_values.push(gen_expr(arg, locals, strucs, funcs, context, builder).as_basic_value_enum());
                 }
-                if let Some(BasicValueEnum::IntValue(value)) = builder.build_call(funcs[*index], &arg_values, "").try_as_basic_value().left() {
+                if let Some(value) = builder.build_call(funcs[*index], &arg_values, "").try_as_basic_value().left() {
                     return value;
                 }
             }
@@ -60,26 +56,33 @@ fn gen_expr<'a>(node: &Expr, locals: &Vec<PointerValue<'a> >, strucs: &Vec<types
             return rhs;
         }
         ExprKind::Unary(kind, ohs) => {
-            let ohs = gen_expr(&ohs, locals, strucs, funcs, context, builder);
-            match kind {
-                UnaryKind::Sext => return builder.build_int_s_extend(ohs, gen_int_type(&node.typed, strucs, context), ""),
-                UnaryKind::Trunc => return builder.build_int_truncate(ohs, gen_int_type(&node.typed, strucs, context), ""),
-                UnaryKind::Neg => return builder.build_int_neg(ohs, ""),
+            if let BasicValueEnum::IntValue(ohs) = gen_expr(&ohs, locals, strucs, funcs, context, builder) {
+                match kind {
+                    UnaryKind::Sext => return builder.build_int_s_extend(ohs, gen_int_type(&node.typed, strucs, context), "").into(),
+                    UnaryKind::Trunc => return builder.build_int_truncate(ohs, gen_int_type(&node.typed, strucs, context), "").into(),
+                    UnaryKind::Neg => return builder.build_int_neg(ohs, "").into(),
+                }
             }
+            eprintln!("What's happening!?");
+            std::process::exit(1);
         },
         ExprKind::Binary(kind, lhs, rhs) => {
-            let lhs = gen_expr(&lhs, locals, strucs, funcs,  context, builder);
-            let rhs = gen_expr(&rhs, locals, strucs, funcs, context, builder);
-            match kind {
-                BinaryKind::Equ => return builder.build_int_z_extend(builder.build_int_compare(EQ, lhs, rhs, ""), context.i32_type(), ""),
-                BinaryKind::Neq => return builder.build_int_z_extend(builder.build_int_compare(NE, lhs, rhs, ""), context.i32_type(), ""),
-                BinaryKind::Les => return builder.build_int_z_extend(builder.build_int_compare(SLT, lhs, rhs, ""), context.i32_type(), ""),
-                BinaryKind::Leq => return builder.build_int_z_extend(builder.build_int_compare(SLE, lhs, rhs, ""), context.i32_type(), ""),
-                BinaryKind::Add => return builder.build_int_nsw_add(lhs, rhs, ""),
-                BinaryKind::Sub => return builder.build_int_nsw_sub(lhs, rhs, ""),
-                BinaryKind::Mul => return builder.build_int_nsw_mul(lhs, rhs, ""),
-                BinaryKind::Div => return builder.build_int_unsigned_div(lhs, rhs, ""),
+            if let BasicValueEnum::IntValue(lhs) = gen_expr(&lhs, locals, strucs, funcs,  context, builder) {
+                if let BasicValueEnum::IntValue(rhs) = gen_expr(&rhs, locals, strucs, funcs,  context, builder) {
+                    match kind {
+                        BinaryKind::Equ => return builder.build_int_z_extend(builder.build_int_compare(EQ, lhs, rhs, ""), context.i32_type(), "").into(),
+                        BinaryKind::Neq => return builder.build_int_z_extend(builder.build_int_compare(NE, lhs, rhs, ""), context.i32_type(), "").into(),
+                        BinaryKind::Les => return builder.build_int_z_extend(builder.build_int_compare(SLT, lhs, rhs, ""), context.i32_type(), "").into(),
+                        BinaryKind::Leq => return builder.build_int_z_extend(builder.build_int_compare(SLE, lhs, rhs, ""), context.i32_type(), "").into(),
+                        BinaryKind::Add => return builder.build_int_nsw_add(lhs, rhs, "").into(),
+                        BinaryKind::Sub => return builder.build_int_nsw_sub(lhs, rhs, "").into(),
+                        BinaryKind::Mul => return builder.build_int_nsw_mul(lhs, rhs, "").into(),
+                        BinaryKind::Div => return builder.build_int_unsigned_div(lhs, rhs, "").into(),
+                    }
+                }
             }
+            eprintln!("What's happening!?");
+            std::process::exit(1);
         },
     }
 }
@@ -96,27 +99,30 @@ fn gen_stmt<'a>(node: Stmt, ret_value: PointerValue<'a>, locals: &Vec<PointerVal
         StmtKind::If(cond, then, els) => {
             let then_block = context.append_basic_block(func_value, "");
             let end_block = context.append_basic_block(func_value, "");
-            let cond = gen_expr(&cond, locals, strucs, funcs, context, builder);
-            let comp = builder.build_int_compare(EQ, cond, context.i32_type().const_int(0, false), "");
+            if let BasicValueEnum::IntValue(cond) = gen_expr(&cond, locals, strucs, funcs, context, builder) {
+                let comp = builder.build_int_compare(EQ, cond, context.i32_type().const_int(0, false), "");
 
-            if let Some(els) = els {
-                let else_block = context.append_basic_block(func_value, "");
-                builder.build_conditional_branch(comp, else_block, then_block);
-                builder.position_at_end(else_block);
-                if !gen_stmt(*els, ret_value, locals, strucs, funcs, func_value, ret_block, context, builder) {
+                if let Some(els) = els {
+                    let else_block = context.append_basic_block(func_value, "");
+                    builder.build_conditional_branch(comp, else_block, then_block);
+                    builder.position_at_end(else_block);
+                    if !gen_stmt(*els, ret_value, locals, strucs, funcs, func_value, ret_block, context, builder) {
+                        builder.build_unconditional_branch(end_block);
+                    }
+                } else {
+                    builder.build_conditional_branch(comp, end_block, then_block);
+                }
+    
+                builder.position_at_end(then_block);
+                if !gen_stmt(*then, ret_value, locals, strucs, funcs, func_value, ret_block, context, builder) {
                     builder.build_unconditional_branch(end_block);
                 }
-            } else {
-                builder.build_conditional_branch(comp, end_block, then_block);
+    
+                builder.position_at_end(end_block);
+                return false;
             }
-
-            builder.position_at_end(then_block);
-            if !gen_stmt(*then, ret_value, locals, strucs, funcs, func_value, ret_block, context, builder) {
-                builder.build_unconditional_branch(end_block);
-            }
-
-            builder.position_at_end(end_block);
-            return false;
+            eprintln!("What's happening!?");
+            std::process::exit(1);
         },
         StmtKind::Block(body) => {
             for stmt in body {
