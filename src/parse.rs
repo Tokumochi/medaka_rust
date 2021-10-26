@@ -14,8 +14,8 @@ pub enum Type {
 }
 
 impl Type {
-    // decl_spec -> "i8" | "32" | struct_name
-    fn decl_spec(tokens: &mut TokenGroup, strucs: &Vec<Struct>) -> Self {
+    // type_spec -> "i8" | "32" | struct_name
+    fn type_spec(tokens: &mut TokenGroup, strucs: &Vec<Struct>) -> Self {
         if tokens.is_equal("i8") {
             return Self::Int(IntType::Int8);
         }
@@ -40,7 +40,7 @@ pub struct Struct {
 }
 
 impl Struct {
-    // decl_member -> ident ":" decl_spec
+    // decl_member -> ident ":" type_spec
     fn decl_member(&mut self, tokens: &mut TokenGroup, strucs: &Vec<Struct>) {
         if let Some(name) = tokens.is_ident() {
             let name = name.to_string();
@@ -51,7 +51,7 @@ impl Struct {
                 }
             }
             tokens.expected(":");
-            self.members.push((name.to_string(), Type::decl_spec(tokens, strucs)));
+            self.members.push((name.to_string(), Type::type_spec(tokens, strucs)));
         } else {
             tokens.current_token_error("identifier is expected".to_string());
             std::process::exit(1);
@@ -124,13 +124,13 @@ impl<'a> ParsingManager<'a> {
         return self.locals.len() - 1;
     }
 
-    // declarator -> ident ":" decl_spec
+    // declarator -> ident ":" type_spec
     fn declarator(&mut self, tokens: &mut TokenGroup) -> (usize, Type) {
         if let Some(name) = tokens.is_ident() {
             let name = name.to_string();
             if self.find_local_var(name.as_str()) == None && self.find_func(name.as_str()) == None && self.name != name {
                 tokens.expected(":");
-                let typed = Type::decl_spec(tokens, self.strucs);
+                let typed = Type::type_spec(tokens, self.strucs);
                 let index = self.new_local_var(name, typed);
                 return (index, typed);
             }
@@ -560,7 +560,7 @@ impl DefGroup {
         tokens.current_token_error("identifier is expected".to_string());
         std::process::exit(1);
     }
-    // func -> ident "(" (declarator ("," declarator)*)? ")" ":" decl_spec "{" block
+    // func -> ident "(" (declarator ("," declarator)*)? ")" ":" type_spec "{" block
     fn func(tokens: &mut TokenGroup, funcs: &Vec<Func>, strucs: &Vec<Struct>) -> Func {
         if let Some(name) = tokens.is_ident() {
             if DefGroup::is_exist_struct(strucs, name) || DefGroup::is_exist_func(funcs, name) {
@@ -586,7 +586,7 @@ impl DefGroup {
             }
 
             tokens.expected(":");
-            let typed = Type::decl_spec(tokens, strucs);
+            let typed = Type::type_spec(tokens, strucs);
 
             tokens.expected("{");
             manager.typed = typed;
