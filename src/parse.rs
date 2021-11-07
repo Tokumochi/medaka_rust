@@ -105,6 +105,14 @@ impl<'a> ParsingManager<'a> {
         return None;
     }
 
+    // return type of struct
+    fn find_struc(&self, typed: Type) -> Option<&Struct> {
+        if let Type::Struct(struc_index) = typed {
+            return Some(&self.strucs[struc_index]);
+        }
+        return None;
+    }
+
     // return (index of func, type of func, param vars)
     fn find_func(&self, name: &str) -> Option<(usize, Type, &[Var])> {
         for (index, func) in self.funcs.iter().enumerate() {
@@ -134,13 +142,22 @@ impl<'a> ParsingManager<'a> {
                 let index = self.new_local_var(name, typed);
                 return (index, typed);
             }
-            let message = format!("The variable name \"{}\" already exists.", name);
-            tokens.previous_token_error(message);
+            tokens.previous_token_error(format!("The variable name \"{}\" already exists.", name));
             std::process::exit(1);
         }
         tokens.current_token_error("identifier is expected".to_string());
         std::process::exit(1);
     }
+}
+
+pub enum StorageKind {
+    Var,
+    Member(usize), // (index of the struct member)
+}
+
+pub struct Storage {
+    pub kind: StorageKind, // storage kind
+    pub var_index: usize,  // index of variable
 }
 
 pub enum UnaryKind {
@@ -161,12 +178,12 @@ pub enum BinaryKind {
 }
 
 pub enum ExprKind {
-    Num(u64),
-    Var(usize),
-    Call(usize, Vec<Expr>),
-    Unary(UnaryKind, Box<Expr>),
-    Binary(BinaryKind, Box<Expr>, Box<Expr>),
-    Assign(usize, Box<Expr>),
+    Num(u64),                                 // (value)
+    Storage(Storage),                         // (storage kind, index of variable)
+    Call(usize, Vec<Expr>),                   // (index of function, Expr arguments)
+    Unary(UnaryKind, Box<Expr>),              // (unary kind, one-hand-side Expr)
+    Binary(BinaryKind, Box<Expr>, Box<Expr>), // (binary kind, left-hand-side Expr, right-hand-side Expr)
+    Assign(Storage, Box<Expr>),           // (storage kind, rhs-hand-side Expr)
 }
 
 pub struct Expr {
@@ -183,9 +200,24 @@ impl Expr {
         }
     }
 
-    fn new_var_node(index: usize, typed: Type) -> Self {
+    fn new_var_node(var_index: usize, typed: Type) -> Self {
+        let var_storage = Storage {
+            kind: StorageKind::Var,
+            var_index: var_index,
+        };
         Self {
-            kind: ExprKind::Var(index),
+            kind: ExprKind::Storage(var_storage),
+            typed: typed,
+        }
+    }
+
+    fn new_member_node(var_index: usize, member_index: usize, typed: Type) -> Self {
+        let member_storage = Storage {
+            kind: StorageKind::Member(member_index),
+            var_index: var_index,
+        };
+        Self {
+            kind: ExprKind::Storage(member_storage),
             typed: typed,
         }
     }
@@ -197,11 +229,15 @@ impl Expr {
         }
     }
 
-    fn new_assign_node(token: &Token, index: usize, typed: Type, rhs: Self) -> Self {
-        Self {
-            kind: ExprKind::Assign(index, Box::new(Expr::new_type_conv_node(token, typed, rhs))),
-            typed: typed,
+    fn new_assign_node(token: &Token, lhs: Self, rhs: Self) -> Self {
+        if let ExprKind::Storage(storage) = lhs.kind {
+            return Self {
+                kind: ExprKind::Assign(storage, Box::new(Expr::new_type_conv_node(token, lhs.typed, rhs))),
+                typed: lhs.typed,
+            }
         }
+        token.token_error(String::from("The left side must be variable or struct member."));
+        std::process::exit(1);
     }
 
     fn new_type_conv_node(token: &Token, typed: Type, node: Self) -> Self {
@@ -263,17 +299,12 @@ impl Expr {
 
     // assign -> equality ("=" assign)?
     fn assign(tokens: &mut TokenGroup, manager: &ParsingManager) -> Self {
-        let node = Expr::equality(tokens, manager);
+        let lhs = Expr::equality(tokens, manager);
         if tokens.is_equal("=") {
-            if let ExprKind::Var(index) = node.kind {
-                let rhs = Expr::assign(tokens, manager);
-                return Expr::new_assign_node(&tokens.get_previous_token(), index, node.typed, rhs);
-            } else {
-                tokens.previous_token_error("The left side must be variable.".to_string());
-                std::process::exit(1);
-            }
+            let rhs = Expr::assign(tokens, manager);
+            return Expr::new_assign_node(&tokens.get_previous_token(), lhs, rhs);
         }
-        return node;
+        return lhs;
     }
 
     // equality -> relational ("==" relational | "!=" relational)*
@@ -403,8 +434,27 @@ impl Expr {
                 return Expr::new_call_node(index, typed, args);
             }
             // variable
-            if let Some((index, typed)) = manager.find_local_var(name) {
-                return Expr::new_var_node(index, typed);
+            if let Some((var_index, typed)) = manager.find_local_var(name) {
+                // member
+                if tokens.is_equal(".") {
+                    if let Some(struc) = manager.find_struc(typed) {
+                        if let Some(name) = tokens.is_ident() {
+                            for (member_index, (member_name, member_typed)) in struc.members.iter().enumerate() {
+                                if name == member_name {
+                                    return Expr::new_member_node(var_index, member_index, *member_typed);
+                                }
+                            }
+                            tokens.previous_token_error(String::from("This member name doesn't exist."));
+                            std::process::exit(1);
+                        }
+                        tokens.current_token_error(String::from("Member name is needed."));
+                        std::process::exit(1);
+                    }
+                    tokens.previous_token_error(String::from("This is not a struct variable."));
+                    std::process::exit(1);
+                }
+                // normal variable
+                return Expr::new_var_node(var_index, typed);
             }
 
             let message = format!("The variable name \"{}\" doesn't exists.", name);
@@ -490,7 +540,7 @@ impl Stmt {
             let (index, typed) = manager.declarator(tokens);
             if tokens.is_equal("=") {
                 let rhs = Expr::expr(tokens, manager);
-                body.push(Self { kind: StmtKind::ExprStmt(Expr::new_assign_node(&tokens.get_previous_token(), index, typed, rhs)) });
+                body.push(Self { kind: StmtKind::ExprStmt(Expr::new_assign_node(&tokens.get_previous_token(), Expr::new_var_node(index, typed), rhs)) });
             }
         }
         return Self {

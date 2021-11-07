@@ -5,7 +5,7 @@ use inkwell::values::{BasicValue, BasicValueEnum, FunctionValue, PointerValue};
 use inkwell::IntPredicate::{EQ, NE, SLT, SLE};
 use inkwell::types::{self, StructType, BasicType, BasicTypeEnum};
 
-use super::parse::{IntType, Type, UnaryKind, BinaryKind, ExprKind, Expr, StmtKind, Stmt, DefGroup};
+use super::parse::{IntType, Type, StorageKind, Storage, UnaryKind, BinaryKind, ExprKind, Expr, StmtKind, Stmt, DefGroup};
 
 fn gen_type<'a>(typed: &Type, strucs: &Vec<StructType<'a>>, context: &'a Context) -> BasicTypeEnum<'a> {
     match typed {
@@ -19,7 +19,7 @@ fn gen_type<'a>(typed: &Type, strucs: &Vec<StructType<'a>>, context: &'a Context
     }
 }
 
-fn gen_int_type<'a>(typed: &Type, strucs: &Vec<types::StructType<'a>>, context: &'a Context) -> types::IntType<'a> {
+fn gen_int_type<'a>(typed: &Type, strucs: &Vec<StructType<'a>>, context: &'a Context) -> types::IntType<'a> {
     let typed = gen_type(typed, strucs, context);
     if let BasicTypeEnum::IntType(int_typed) = typed {
         return int_typed;
@@ -28,15 +28,27 @@ fn gen_int_type<'a>(typed: &Type, strucs: &Vec<types::StructType<'a>>, context: 
     std::process::exit(1);
 }
 
+fn gen_storage<'a>(storage: &Storage, locals: &Vec<PointerValue<'a> >, context: &'a Context, builder: &'a Builder) -> PointerValue<'a> {
+    match storage.kind {
+        StorageKind::Var => return locals[storage.var_index],
+        StorageKind::Member(member_index) => {
+            let ordered_indexes = [context.i32_type().const_int(0, false), context.i32_type().const_int(member_index as u64, false)];
+            unsafe {
+                return builder.build_in_bounds_gep(locals[storage.var_index], &ordered_indexes, "");
+            }
+        }
+    }
+}
+
 fn gen_expr<'a>(node: &Expr, locals: &Vec<PointerValue<'a> >, strucs: &Vec<types::StructType<'a>>, funcs: &Vec<FunctionValue<'a>>, context: &'a Context, builder: &'a Builder) -> BasicValueEnum<'a> {
 
     match &node.kind {
         ExprKind::Num(value) => {
             return context.i32_type().const_int(*value, false).into();
         },
-        ExprKind::Var(index) => {
-            return builder.build_load(locals[*index], "");
-        },
+        ExprKind::Storage(storage) => {
+            return builder.build_load(gen_storage(storage, locals, context, builder), "");
+        }
         ExprKind::Call(index, args) => {
             if funcs[*index].count_params() as usize == args.len() {
                 let mut arg_values = vec![];
@@ -50,9 +62,9 @@ fn gen_expr<'a>(node: &Expr, locals: &Vec<PointerValue<'a> >, strucs: &Vec<types
             eprintln!("What's happening!?");
             std::process::exit(1);
         },
-        ExprKind::Assign(index, rhs) => {
+        ExprKind::Assign(storage, rhs) => {
             let rhs = gen_expr(&rhs, locals, strucs, funcs, context, builder);
-            builder.build_store(locals[*index], rhs);
+            builder.build_store(gen_storage(storage, locals, context, builder), rhs);
             return rhs;
         }
         ExprKind::Unary(kind, ohs) => {
