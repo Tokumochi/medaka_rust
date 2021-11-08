@@ -151,13 +151,8 @@ impl<'a> ParsingManager<'a> {
 }
 
 pub enum StorageKind {
-    Var,
-    Member(usize), // (index of the struct member)
-}
-
-pub struct Storage {
-    pub kind: StorageKind, // storage kind
-    pub var_index: usize,  // index of variable
+    Var(usize),                      // (index of variable)
+    Member(usize, Box<StorageKind>), // (index of the struct member, kind of the struct member)
 }
 
 pub enum UnaryKind {
@@ -179,11 +174,11 @@ pub enum BinaryKind {
 
 pub enum ExprKind {
     Num(u64),                                 // (value)
-    Storage(Storage),                         // (storage kind, index of variable)
+    Storage(StorageKind),                     // (storage kind, index of variable)
     Call(usize, Vec<Expr>),                   // (index of function, Expr arguments)
     Unary(UnaryKind, Box<Expr>),              // (unary kind, one-hand-side Expr)
     Binary(BinaryKind, Box<Expr>, Box<Expr>), // (binary kind, left-hand-side Expr, right-hand-side Expr)
-    Assign(Storage, Box<Expr>),           // (storage kind, rhs-hand-side Expr)
+    Assign(StorageKind, Box<Expr>),           // (storage kind, rhs-hand-side Expr)
 }
 
 pub struct Expr {
@@ -200,24 +195,9 @@ impl Expr {
         }
     }
 
-    fn new_var_node(var_index: usize, typed: Type) -> Self {
-        let var_storage = Storage {
-            kind: StorageKind::Var,
-            var_index: var_index,
-        };
+    fn new_storage_node(storage_kind: StorageKind, typed: Type) -> Self {
         Self {
-            kind: ExprKind::Storage(var_storage),
-            typed: typed,
-        }
-    }
-
-    fn new_member_node(var_index: usize, member_index: usize, typed: Type) -> Self {
-        let member_storage = Storage {
-            kind: StorageKind::Member(member_index),
-            var_index: var_index,
-        };
-        Self {
-            kind: ExprKind::Storage(member_storage),
+            kind: ExprKind::Storage(storage_kind),
             typed: typed,
         }
     }
@@ -433,15 +413,20 @@ impl Expr {
                 tokens.expected(")");
                 return Expr::new_call_node(index, typed, args);
             }
-            // variable
+            // storage
             if let Some((var_index, typed)) = manager.find_local_var(name) {
+                // variable
+                let mut storage_kind = StorageKind::Var(var_index);
+                let mut storage_typed = typed;
                 // member
-                if tokens.is_equal(".") {
-                    if let Some(struc) = manager.find_struc(typed) {
+                'period: while tokens.is_equal(".") {
+                    if let Some(struc) = manager.find_struc(storage_typed) {
                         if let Some(name) = tokens.is_ident() {
                             for (member_index, (member_name, member_typed)) in struc.members.iter().enumerate() {
                                 if name == member_name {
-                                    return Expr::new_member_node(var_index, member_index, *member_typed);
+                                    storage_kind = StorageKind::Member(member_index, Box::new(storage_kind));
+                                    storage_typed = *member_typed;
+                                    continue 'period;
                                 }
                             }
                             tokens.previous_token_error(String::from("This member name doesn't exist."));
@@ -453,8 +438,7 @@ impl Expr {
                     tokens.previous_token_error(String::from("This is not a struct variable."));
                     std::process::exit(1);
                 }
-                // normal variable
-                return Expr::new_var_node(var_index, typed);
+                return Expr::new_storage_node(storage_kind, storage_typed);
             }
 
             let message = format!("The variable name \"{}\" doesn't exists.", name);
@@ -540,7 +524,7 @@ impl Stmt {
             let (index, typed) = manager.declarator(tokens);
             if tokens.is_equal("=") {
                 let rhs = Expr::expr(tokens, manager);
-                body.push(Self { kind: StmtKind::ExprStmt(Expr::new_assign_node(&tokens.get_previous_token(), Expr::new_var_node(index, typed), rhs)) });
+                body.push(Self { kind: StmtKind::ExprStmt(Expr::new_assign_node(&tokens.get_previous_token(), Expr::new_storage_node(StorageKind::Var(index), typed), rhs)) });
             }
         }
         return Self {

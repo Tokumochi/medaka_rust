@@ -5,7 +5,7 @@ use inkwell::values::{BasicValue, BasicValueEnum, FunctionValue, PointerValue};
 use inkwell::IntPredicate::{EQ, NE, SLT, SLE};
 use inkwell::types::{self, StructType, BasicType, BasicTypeEnum};
 
-use super::parse::{IntType, Type, StorageKind, Storage, UnaryKind, BinaryKind, ExprKind, Expr, StmtKind, Stmt, DefGroup};
+use super::parse::{IntType, Type, StorageKind, UnaryKind, BinaryKind, ExprKind, Expr, StmtKind, Stmt, DefGroup};
 
 fn gen_type<'a>(typed: &Type, strucs: &Vec<StructType<'a>>, context: &'a Context) -> BasicTypeEnum<'a> {
     match typed {
@@ -28,13 +28,13 @@ fn gen_int_type<'a>(typed: &Type, strucs: &Vec<StructType<'a>>, context: &'a Con
     std::process::exit(1);
 }
 
-fn gen_storage<'a>(storage: &Storage, locals: &Vec<PointerValue<'a> >, context: &'a Context, builder: &'a Builder) -> PointerValue<'a> {
-    match storage.kind {
-        StorageKind::Var => return locals[storage.var_index],
-        StorageKind::Member(member_index) => {
-            let ordered_indexes = [context.i32_type().const_int(0, false), context.i32_type().const_int(member_index as u64, false)];
+fn gen_storage<'a>(storage_kind: &StorageKind, locals: &Vec<PointerValue<'a> >, context: &'a Context, builder: &'a Builder) -> PointerValue<'a> {
+    match storage_kind {
+        StorageKind::Var(var_index) => return locals[*var_index],
+        StorageKind::Member(member_index, storage_kind) => {
+            let ordered_indexes = [context.i32_type().const_int(0, false), context.i32_type().const_int(*member_index as u64, false)];
             unsafe {
-                return builder.build_in_bounds_gep(locals[storage.var_index], &ordered_indexes, "");
+                return builder.build_in_bounds_gep(gen_storage(storage_kind, locals, context, builder), &ordered_indexes, "");
             }
         }
     }
