@@ -4,7 +4,7 @@ mod codegen;
 
 use std::env;
 use tokenize::TokenGroup;
-use parse::DefGroup;
+use parse::define::DefGroup;
 
 fn main() {
     let args: Vec<String> = env::args().collect();

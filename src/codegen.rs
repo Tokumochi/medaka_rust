@@ -5,7 +5,9 @@ use inkwell::values::{BasicValue, BasicValueEnum, FunctionValue, PointerValue};
 use inkwell::IntPredicate::{EQ, NE, SLT, SLE};
 use inkwell::types::{self, StructType, BasicType, BasicTypeEnum};
 
-use super::parse::{IntType, Type, StorageKind, UnaryKind, BinaryKind, ExprKind, Expr, StmtKind, Stmt, DefGroup};
+use super::parse::typed::{IntType, Type};
+use super::parse::func::{StorageKind, UnaryKind, BinaryKind, ExprKind, Expr, StmtKind, Stmt};
+use super::parse::define::DefGroup;
 
 fn gen_type<'a>(typed: &Type, strucs: &Vec<StructType<'a>>, context: &'a Context) -> BasicTypeEnum<'a> {
     match typed {

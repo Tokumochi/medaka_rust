@@ -1,63 +1,6 @@
-use super::tokenize::Token;
-use super::tokenize::TokenGroup;
-
-#[derive(PartialEq, PartialOrd, Clone, Copy)]
-pub enum IntType {
-    Int8,
-    Int32,
-}
-
-#[derive(PartialEq, Clone, Copy)]
-pub enum Type {
-    Int(IntType),
-    Struct(usize),
-}
-
-impl Type {
-    // type_spec -> "i8" | "32" | struct_name
-    fn type_spec(tokens: &mut TokenGroup, strucs: &Vec<Struct>) -> Self {
-        if tokens.is_equal("i8") {
-            return Self::Int(IntType::Int8);
-        }
-        if tokens.is_equal("i32") {
-            return Self::Int(IntType::Int32);
-        }
-        if let Some(name) = tokens.is_ident() {
-            for (index, struc) in strucs.iter().enumerate() {
-                if struc.name == name {
-                    return Self::Struct(index);
-                }
-            }
-        }
-        tokens.current_token_error("type name is expected".to_string());
-        std::process::exit(1);
-    }
-}
-
-pub struct Struct {
-    name: String,
-    pub members: Vec<(String, Type)>,
-}
-
-impl Struct {
-    // decl_member -> ident ":" type_spec
-    fn decl_member(&mut self, tokens: &mut TokenGroup, strucs: &Vec<Struct>) {
-        if let Some(name) = tokens.is_ident() {
-            let name = name.to_string();
-            for (member_name, _) in &self.members {
-                if *member_name == name {
-                    tokens.previous_token_error(format!("The member name \"{}\" already exists.", name));
-                    std::process::exit(1);
-                }
-            }
-            tokens.expected(":");
-            self.members.push((name.to_string(), Type::type_spec(tokens, strucs)));
-        } else {
-            tokens.current_token_error("identifier is expected".to_string());
-            std::process::exit(1);
-        }
-    }
-}
+use crate::tokenize::{Token, TokenGroup};
+use super::typed::{IntType, Type};
+use super::struc::Struct;
 
 #[derive(PartialEq)]
 pub struct Var {
@@ -73,14 +16,6 @@ impl Var {
             typed: typed,
         }
     }
-}
-
-pub struct Func {
-    pub name: String,
-    pub typed: Type,
-    pub num_of_params: usize,
-    pub locals: Vec<Var>,
-    pub body: Stmt,
 }
 
 // Parsing Manager
@@ -543,119 +478,50 @@ impl Stmt {
     }
 }
 
-pub struct DefGroup {
-    pub strucs: Vec<Struct>,
-    pub funcs: Vec<Func>,
+pub struct Func {
+    pub name: String,
+    pub typed: Type,
+    pub num_of_params: usize,
+    pub locals: Vec<Var>,
+    pub body: Stmt,
 }
 
-impl DefGroup {
+impl Func {
+    // func -> "(" (declarator ("," declarator)*)? ")" ":" type_spec "{" block
+    pub fn func(tokens: &mut TokenGroup, name: String, funcs: &Vec<Func>, strucs: &Vec<Struct>) -> Func {
+        tokens.expected("(");
 
-    fn is_exist_struct(strucs: &Vec<Struct>, name: &str) -> bool {
-        if let Some(_) = strucs.iter().find(|&struc| struc.name == name) {
-            return true;
-        } else {
-            return false;
+        let mut manager = ParsingManager { name: name.clone(), typed: Type::Int(IntType::Int32), num_of_params: 0, locals: vec![], funcs: funcs, strucs: strucs };
+        let mut is_first = true;
+        let mut num_of_params = 0;
+
+        while !tokens.is_equal(")") {
+            if is_first {
+                is_first = false;
+            } else {
+                tokens.expected(",");
+            }
+            manager.declarator(tokens);
+            num_of_params += 1;
         }
-    }
 
-    fn is_exist_func(funcs: &Vec<Func>, name: &str) -> bool {
-        if let Some(_) = funcs.iter().find(|&func| func.name == name) {
-            return true;
-        } else {
-            return false;
-        }
-    }
+        tokens.expected(":");
+        let typed = Type::type_spec(tokens, strucs);
 
-    // struc -> ident "{" (decl_member ("," decl_member)*)? "}"
-    fn struc(tokens: &mut TokenGroup, funcs: &Vec<Func>, strucs: &Vec<Struct>) -> Struct {
-        if let Some(name) = tokens.is_ident() {
-            if DefGroup::is_exist_struct(strucs, name) || DefGroup::is_exist_func(funcs, name) {
-                let message = format!("The struct name \"{}\" already exists.", name);
-                tokens.previous_token_error(message);
-                std::process::exit(1);
-            }
+        tokens.expected("{");
 
-            let name = name.to_string();
-            tokens.expected("{");
+        manager.typed = typed;
+        manager.num_of_params = num_of_params;
 
-            let mut struc = Struct { name: name, members: vec![] };
-            let mut is_first = true;
-            while !tokens.is_equal("}") {
-                if is_first {
-                    is_first = false;
-                } else {
-                    tokens.expected(",");
-                }
-                struc.decl_member(tokens, &strucs);
-            }
-
-            return struc;
-        }
-        tokens.current_token_error("identifier is expected".to_string());
-        std::process::exit(1);
-    }
-    // func -> ident "(" (declarator ("," declarator)*)? ")" ":" type_spec "{" block
-    fn func(tokens: &mut TokenGroup, funcs: &Vec<Func>, strucs: &Vec<Struct>) -> Func {
-        if let Some(name) = tokens.is_ident() {
-            if DefGroup::is_exist_struct(strucs, name) || DefGroup::is_exist_func(funcs, name) {
-                let message = format!("The function name \"{}\" already exists.", name);
-                tokens.previous_token_error(message);
-                std::process::exit(1);
-            }
-
-            let name = name.to_string();
-            tokens.expected("(");
-
-            let mut manager = ParsingManager { name: name.clone(), typed: Type::Int(IntType::Int32), num_of_params: 0, locals: vec![], funcs: funcs, strucs: strucs };
-            let mut is_first = true;
-            let mut num_of_params = 0;
-            while !tokens.is_equal(")") {
-                if is_first {
-                    is_first = false;
-                } else {
-                    tokens.expected(",");
-                }
-                manager.declarator(tokens);
-                num_of_params += 1;
-            }
-
-            tokens.expected(":");
-            let typed = Type::type_spec(tokens, strucs);
-
-            tokens.expected("{");
-            manager.typed = typed;
-            manager.num_of_params = num_of_params;
-            let body = Stmt::block_stmt(tokens, &mut manager);
+        let body = Stmt::block_stmt(tokens, &mut manager);
     
-            return Func {
-                name: name,
-                num_of_params: num_of_params,
-                typed: typed,
-                locals: manager.locals,
-                body: body,
-            }
-        }
-        tokens.current_token_error("identifier is expected".to_string());
-        std::process::exit(1);
-    }
-
-    pub fn new(tokens: &mut TokenGroup) -> Self {
-        let mut strucs = vec![];
-        let mut funcs = vec![];
-        while !tokens.is_end() {
-            if tokens.is_equal("struct") {
-                let struc = DefGroup::struc(tokens, &funcs, &mut strucs);
-                strucs.push(struc);
-                continue;
-            }
-            tokens.expected("define");
-            let func = DefGroup::func(tokens, &funcs, &strucs);
-            funcs.push(func);
-        }
-
-        return Self {
-            strucs: strucs,
-            funcs: funcs,
+        return Func {
+            name: name,
+            num_of_params: num_of_params,
+            typed: typed,
+            locals: manager.locals,
+            body: body,
         }
     }
+    
 }
