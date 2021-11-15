@@ -59,5 +59,6 @@ assert 56 "define main(): i32 { dec a: i32 = 22, b: i8 = 34; a = a + b; b = a; r
 assert 56 "define add(a: i8, b: i32): i8 { return a + b; } define main(): i32 { dec a: i32 = 22, b: i8 = 34; return add(a, b); }"
 assert 10 "struct s1 { a: i32, b: i8 } define main(): i32 { dec a: s1; a.b = 10; return a.b; }"
 assert 5 "struct s1 { a: i32, b: i8 } struct s2{ c: s1, d: i32 } struct s3{ e: s2, f: s1 } define main(): i32 { dec a: s3; a.e.c.b = 5; return a.e.c.b; }"
+assert 3 "define main(): i32 { dec a: i32 = 1; { dec b: i32 = 2; { dec c: i32 = 3; b = c; } { dec d: i32 = b; } a = b; } return a; }"
 
 echo OK 

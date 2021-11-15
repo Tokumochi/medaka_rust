@@ -183,8 +183,8 @@ pub fn codegen<'a>(defs: DefGroup) {
 
     for func in defs.funcs {
         let mut param_types = vec![];
-        for index in 0..func.num_of_params {
-            param_types.push(gen_type(&func.locals[index].typed, &strucs, &context).into());
+        for param in &func.params {
+            param_types.push(gen_type(&param.typed, &strucs, &context).into());
         }
 
         let func_value = module.add_function(&func.name, gen_type(&func.typed, &strucs, &context).fn_type(&param_types, false), None);
@@ -194,9 +194,13 @@ pub fn codegen<'a>(defs: DefGroup) {
         builder.position_at_end(basic_block);
 
         let ret_value = builder.build_alloca(gen_type(&func.typed, &strucs, &context), "return");
+
         let mut locals = vec![];
-        for local in func.locals {
-            locals.push(builder.build_alloca(gen_type(&local.typed, &strucs, &context), local.name.as_str()));
+        for param in &func.params {
+            locals.push(builder.build_alloca(gen_type(&param.typed, &strucs, &context), param.name.as_str()));
+        }
+        for var in func.locals {
+            locals.push(builder.build_alloca(gen_type(&var.typed, &strucs, &context), var.name.as_str()));
         }
 
         for (index, param) in func_value.get_param_iter().enumerate() {

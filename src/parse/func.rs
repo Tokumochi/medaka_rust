@@ -6,15 +6,71 @@ use super::struc::Struct;
 pub struct Var {
     pub name: String,
     pub typed: Type,
+    index: usize,
 }
 
-impl Var {
+// local variable scope in function definition
+pub struct VarScope {
+    vars: Vec<Var>,
+    child: Option<Box<VarScope>>,
+}
 
-    fn new(name: String, typed: Type) -> Self {
-        Self {
+impl VarScope {
+
+    // return (index of var, type of var)
+    fn find_scope_var(&self, name: &str) -> Option<(usize, Type)> {
+        for var in &self.vars {
+            if var.name == name {
+                return Some((var.index, var.typed));
+            }
+        }
+
+        if let Some(child_scope) = &self.child {
+            return child_scope.find_scope_var(name)
+        }
+        return None;
+    }
+
+    // return index of the latest var
+    fn new_scope_var(&mut self, name: String, typed: Type, index: usize) {
+        if let Some(child_scope) = &mut self.child {
+            child_scope.new_scope_var(name, typed, index);
+            return;
+        }
+
+        let var = Var {
             name: name,
             typed: typed,
+            index: index,
+        };
+        self.vars.push(var);
+    }
+
+    fn enter_scope(&mut self) {
+        if let Some(child_scope) = &mut self.child {
+            child_scope.enter_scope();
+            return;
         }
+
+        let scope = VarScope {
+            vars: vec![],
+            child: None,
+        };
+        self.child = Some(Box::new(scope));
+    }
+
+    fn leave_scope(&mut self, locals: &mut Vec<Var>) {
+        if let Some(child_scope) = &mut self.child {
+            if let Some(_) = child_scope.child {
+                child_scope.leave_scope(locals);
+            } else {
+                locals.append(&mut child_scope.vars);
+                self.child = None;
+            }
+            return;
+        }
+        eprintln!("What's happening in leaving scope of mochi code!?");
+        std::process::exit(1);
     }
 }
 
@@ -22,23 +78,14 @@ impl Var {
 struct ParsingManager<'a> {
     name: String,
     typed: Type,
-    num_of_params: usize,
+    top_var_scope: &'a mut VarScope,
+    num_of_locals: usize,
     locals: Vec<Var>,
     strucs: &'a Vec<Struct>,
     funcs: &'a Vec<Func>,
 }
 
 impl<'a> ParsingManager<'a> {
-
-    // return (index of var, type of var)
-    fn find_local_var(&self, name: &str) -> Option<(usize, Type)> {
-        for (index, var) in self.locals.iter().enumerate() {
-            if var.name == name {
-                return Some((index, var.typed));
-            }
-        }
-        return None;
-    }
 
     // return type of struct
     fn find_struc(&self, typed: Type) -> Option<&Struct> {
@@ -52,30 +99,25 @@ impl<'a> ParsingManager<'a> {
     fn find_func(&self, name: &str) -> Option<(usize, Type, &[Var])> {
         for (index, func) in self.funcs.iter().enumerate() {
             if func.name.as_str() == name {
-                return Some((index, func.typed, &func.locals[..func.num_of_params]));
+                return Some((index, func.typed, &func.params));
             }
         }
         if name == self.name {
-            return Some((self.funcs.len(), self.typed, &self.locals[..self.num_of_params]));
+            return Some((self.funcs.len(), self.typed, &self.top_var_scope.vars));
         }
         return None;
-    }
-
-    fn new_local_var(&mut self, name: String, typed: Type) -> usize {
-        let var = Var::new(name, typed);
-        self.locals.push(var);
-        return self.locals.len() - 1;
     }
 
     // declarator -> ident ":" type_spec
     fn declarator(&mut self, tokens: &mut TokenGroup) -> (usize, Type) {
         if let Some(name) = tokens.is_ident() {
             let name = name.to_string();
-            if self.find_local_var(name.as_str()) == None && self.find_func(name.as_str()) == None && self.name != name {
+            if self.top_var_scope.find_scope_var(name.as_str()) == None && self.find_func(name.as_str()) == None && self.name != name {
                 tokens.expected(":");
                 let typed = Type::type_spec(tokens, self.strucs);
-                let index = self.new_local_var(name, typed);
-                return (index, typed);
+                self.top_var_scope.new_scope_var(name, typed, self.num_of_locals);
+                self.num_of_locals += 1;
+                return (self.num_of_locals - 1, typed);
             }
             tokens.previous_token_error(format!("The variable name \"{}\" already exists.", name));
             std::process::exit(1);
@@ -349,7 +391,7 @@ impl Expr {
                 return Expr::new_call_node(index, typed, args);
             }
             // storage
-            if let Some((var_index, typed)) = manager.find_local_var(name) {
+            if let Some((var_index, typed)) = manager.top_var_scope.find_scope_var(name) {
                 // variable
                 let mut storage_kind = StorageKind::Var(var_index);
                 let mut storage_typed = typed;
@@ -440,9 +482,13 @@ impl Stmt {
     // block -> stmt* "}"
     fn block_stmt(tokens: &mut TokenGroup, manager: &mut ParsingManager) -> Self {
         let mut body = vec![];
+
+        manager.top_var_scope.enter_scope();
         while !tokens.is_equal("}") {
             body.push(Stmt::stmt(tokens, manager));
         }
+        manager.top_var_scope.leave_scope(&mut manager.locals);
+    
         return Self { kind: StmtKind::Block(body) };
     }
 
@@ -481,7 +527,7 @@ impl Stmt {
 pub struct Func {
     pub name: String,
     pub typed: Type,
-    pub num_of_params: usize,
+    pub params: Vec<Var>,
     pub locals: Vec<Var>,
     pub body: Stmt,
 }
@@ -491,9 +537,9 @@ impl Func {
     pub fn func(tokens: &mut TokenGroup, name: String, funcs: &Vec<Func>, strucs: &Vec<Struct>) -> Func {
         tokens.expected("(");
 
-        let mut manager = ParsingManager { name: name.clone(), typed: Type::Int(IntType::Int32), num_of_params: 0, locals: vec![], funcs: funcs, strucs: strucs };
+        let mut top_scope = VarScope { vars: vec![], child: None };
+        let mut manager = ParsingManager { name: name.clone(), typed: Type::Int(IntType::Int32), top_var_scope: &mut top_scope, num_of_locals: 0, locals: vec![], funcs: funcs, strucs: strucs };
         let mut is_first = true;
-        let mut num_of_params = 0;
 
         while !tokens.is_equal(")") {
             if is_first {
@@ -502,7 +548,6 @@ impl Func {
                 tokens.expected(",");
             }
             manager.declarator(tokens);
-            num_of_params += 1;
         }
 
         tokens.expected(":");
@@ -511,15 +556,17 @@ impl Func {
         tokens.expected("{");
 
         manager.typed = typed;
-        manager.num_of_params = num_of_params;
 
         let body = Stmt::block_stmt(tokens, &mut manager);
+        let mut locals = manager.locals;
+
+        locals.sort_by(|a, b| a.index.cmp(&b.index));
     
         return Func {
             name: name,
-            num_of_params: num_of_params,
             typed: typed,
-            locals: manager.locals,
+            params: top_scope.vars,
+            locals: locals,
             body: body,
         }
     }
