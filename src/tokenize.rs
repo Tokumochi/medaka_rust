@@ -8,7 +8,7 @@ fn is_number(chara: &str) -> Option<char> {
 
 fn is_alpha(chara: &str) -> bool {
     let chara: char = chara.chars().next().unwrap();
-    return ('a' <= chara && chara <= 'z') || ('A' <= chara && chara <= 'Z');
+    return ('a' <= chara && chara <= 'z') || ('A' <= chara && chara <= 'Z') || chara == '_';
 }
 
 #[derive(Clone, Copy)]
@@ -138,7 +138,7 @@ impl<'a> TokenGroup<'a> {
                         break;
                     }
                 }
-                let keywords = ["struct", "define", "skill", "dec", "i8", "i32", "if", "else", "return"];
+                let keywords = ["struct", "define", "skill", "dec", "i8", "i32", "if", "else", "return", "_"];
                 for keyword in keywords {
                     if &code[start .. p] == keyword {
                         tokens.push(Token::new_opera(keyword, code, start, p - start));
