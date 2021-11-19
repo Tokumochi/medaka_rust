@@ -12,7 +12,7 @@ fn main() {
     let code: &str = args[1].as_str();
 
     let mut tokens = TokenGroup::new(code);
-    let defs = DefGroup::new(&mut tokens);
+    let defs = DefGroup::define_in_general(&mut tokens);
 
     codegen::codegen(defs);
 }
