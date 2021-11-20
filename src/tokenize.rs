@@ -62,7 +62,6 @@ impl<'a> Token<'a> {
     }
 }
 
-
 pub struct TokenGroup<'a> {
     tokens: Vec<Token<'a> >,
     point: usize,
@@ -100,7 +99,8 @@ impl<'a> TokenGroup<'a> {
                 }
             }
             if c == "=" || c == "<" || c == ">" || c == "+" || c == "-" || c == "*" || c == "/" ||
-               c == "(" || c == ")" || c == ";" || c == ":" || c == "{" || c == "}" || c == "," || c == "." {
+               c == "(" || c == ")" || c == ";" || c == ":" || c == "{" || c == "}" || c == "," ||
+               c == "." || c == "|" {
                 tokens.push(Token::new_opera(c, code,  p, 1));
                 p += 1;
                 continue;

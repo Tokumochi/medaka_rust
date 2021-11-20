@@ -1,12 +1,13 @@
 use crate::tokenize::{Token, TokenGroup};
 use super::typed::{IntType, Type};
 use super::struc::Struct;
+use super::define::Skill;
 
 #[derive(PartialEq)]
 pub struct Var {
+    number: usize,
     pub name: String,
     pub typed: Type,
-    index: usize,
 }
 
 // local variable scope in function definition
@@ -21,7 +22,7 @@ impl VarScope {
     fn find_scope_var(&self, name: &str) -> Option<(usize, Type)> {
         for var in &self.vars {
             if var.name == name {
-                return Some((var.index, var.typed));
+                return Some((var.number, var.typed));
             }
         }
 
@@ -32,16 +33,16 @@ impl VarScope {
     }
 
     // return index of the latest var
-    fn new_scope_var(&mut self, name: String, typed: Type, index: usize) {
+    fn new_scope_var(&mut self, number: usize, name: String, typed: Type) {
         if let Some(child_scope) = &mut self.child {
-            child_scope.new_scope_var(name, typed, index);
+            child_scope.new_scope_var(number, name, typed);
             return;
         }
 
         let var = Var {
+            number: number,
             name: name,
             typed: typed,
-            index: index,
         };
         self.vars.push(var);
     }
@@ -74,15 +75,32 @@ impl VarScope {
     }
 }
 
+struct SkillScope<'a> {
+    skill: Option<&'a Skill>,
+}
+
+impl<'a> SkillScope<'a> {
+
+    fn enter_scope(&mut self, skill: &'a Skill) {
+        self.skill = Some(skill);
+    }
+
+    fn leave_scope(&mut self) {
+        self.skill = None;
+    }
+}
+
 // Parsing Manager
 struct ParsingManager<'a> {
     name: String,
     typed: Type,
     top_var_scope: &'a mut VarScope,
+    skill_scope: &'a mut SkillScope<'a>,
     num_of_locals: usize,
     locals: Vec<Var>,
     strucs: &'a Vec<Struct>,
     funcs: &'a Vec<Func>,
+    skills: &'a Vec<Skill>,
 }
 
 impl<'a> ParsingManager<'a> {
@@ -95,17 +113,38 @@ impl<'a> ParsingManager<'a> {
         return None;
     }
 
-    // return (index of func, type of func, param vars)
+    // return (number of func, type of func, param vars)
     fn find_func(&self, name: &str) -> Option<(usize, Type, &[Var])> {
-        for (index, func) in self.funcs.iter().enumerate() {
+        // general
+        for func in self.funcs {
             if func.name.as_str() == name {
-                return Some((index, func.typed, &func.params));
+                return Some((func.number, func.typed, &func.params));
             }
         }
+        // skill
+        if let Some(skill) = self.skill_scope.skill {
+            for func in &skill.funcs {
+                if func.name.as_str() == name {
+                    return Some((func.number, func.typed, &func.params));
+                }
+            }
+        }
+        // self
         if name == self.name {
             return Some((self.funcs.len(), self.typed, &self.top_var_scope.vars));
         }
         return None;
+    }
+
+    fn find_and_enter_skill(&mut self, tokens: &mut TokenGroup, name: &str) {
+        for skill in self.skills {
+            if skill.name.as_str() == name {
+                self.skill_scope.enter_scope(skill);
+                return;
+            }
+        }
+        tokens.previous_token_error(format!("The skill name \"{}\" doesn't exists.", name));
+        std::process::exit(1);
     }
 
     // declarator -> ident ":" type_spec
@@ -115,7 +154,7 @@ impl<'a> ParsingManager<'a> {
             if self.top_var_scope.find_scope_var(name.as_str()) == None && self.find_func(name.as_str()) == None && self.name != name {
                 tokens.expected(":");
                 let typed = Type::type_spec(tokens, self.strucs);
-                self.top_var_scope.new_scope_var(name, typed, self.num_of_locals);
+                self.top_var_scope.new_scope_var(self.num_of_locals, name, typed);
                 self.num_of_locals += 1;
                 return (self.num_of_locals - 1, typed);
             }
@@ -129,7 +168,7 @@ impl<'a> ParsingManager<'a> {
 
 pub enum StorageKind {
     Var(usize),                      // (index of variable)
-    Member(usize, Box<StorageKind>), // (index of the struct member, kind of the struct member)
+    Member(usize, Box<StorageKind>), // (index of the struct member, kind of the struct)
 }
 
 pub enum UnaryKind {
@@ -446,7 +485,7 @@ pub struct Stmt {
 impl Stmt {
     // stmt -> "return" expr ";"
     //       | "if" expr ":" stmt ("else" stmt)?
-    //       | "{" block_stmt
+    //       | ("|" skill-ident "|")? "{" block_stmt
     //       | expr_stmt
     fn stmt(tokens: &mut TokenGroup, manager: &mut ParsingManager) -> Self {
         if tokens.is_equal("return") {
@@ -469,6 +508,22 @@ impl Stmt {
                 }
             }
             tokens.previous_token_error("if-condition is for int type".to_string());
+            std::process::exit(1);
+        }
+
+        if tokens.is_equal("|") {
+            if let Some(name) = tokens.is_ident() {
+                let name = String::from(name);
+                manager.find_and_enter_skill(tokens, name.as_str());
+
+                tokens.expected("|");
+                tokens.expected("{");
+                let stmts_in_skill = Stmt::block_stmt(tokens, manager);
+
+                manager.skill_scope.leave_scope();
+                return stmts_in_skill;
+            }
+            tokens.current_token_error(String::from("expected skill name"));
             std::process::exit(1);
         }
 
@@ -525,6 +580,7 @@ impl Stmt {
 }
 
 pub struct Func {
+    pub number: usize,
     pub name: String,
     pub typed: Type,
     pub params: Vec<Var>,
@@ -534,11 +590,13 @@ pub struct Func {
 
 impl Func {
     // func -> "(" (declarator ("," declarator)*)? ")" ":" type_spec "{" block
-    pub fn func(tokens: &mut TokenGroup, name: String, funcs: &Vec<Func>, strucs: &Vec<Struct>) -> Func {
+    pub fn func(tokens: &mut TokenGroup, number: usize, name: String, strucs: &Vec<Struct>, funcs: &Vec<Func>, skills: &Vec<Skill>) -> Func {
         tokens.expected("(");
 
-        let mut top_scope = VarScope { vars: vec![], child: None };
-        let mut manager = ParsingManager { name: name.clone(), typed: Type::Int(IntType::Int32), top_var_scope: &mut top_scope, num_of_locals: 0, locals: vec![], funcs: funcs, strucs: strucs };
+        let mut top_var_scope = VarScope { vars: vec![], child: None };
+        let mut skill_scope = SkillScope { skill: None };
+        let mut manager = ParsingManager { name: name.clone(), typed: Type::Int(IntType::Int32), skill_scope: &mut skill_scope, top_var_scope: &mut top_var_scope, num_of_locals: 0, locals: vec![], funcs: funcs, strucs: strucs, skills: skills };
+
         let mut is_first = true;
 
         while !tokens.is_equal(")") {
@@ -560,12 +618,13 @@ impl Func {
         let body = Stmt::block_stmt(tokens, &mut manager);
         let mut locals = manager.locals;
 
-        locals.sort_by(|a, b| a.index.cmp(&b.index));
+        locals.sort_by(|a, b| a.number.cmp(&b.number));
     
         return Func {
+            number: number,
             name: name,
             typed: typed,
-            params: top_scope.vars,
+            params: top_var_scope.vars,
             locals: locals,
             body: body,
         }
