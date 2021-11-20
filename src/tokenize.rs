@@ -60,6 +60,13 @@ impl<'a> Token<'a> {
         eprintln!("{0:>1$}", "^", self.pos + 1);
         eprintln!("{0:>1$}{2}", "", self.pos, message);
     }
+
+    pub fn next_empty_token_error(&self, message: String) {
+        eprintln!("{}", self.line);
+        eprintln!("{0:>1$}{0:~>2$}", "", self.pos + self.len, 1);
+        eprintln!("{0:>1$}", "^", self.pos + self.len + 1);
+        eprintln!("{0:>1$}{2}", "", self.pos + self.len, message);
+    }
 }
 
 pub struct TokenGroup<'a> {
@@ -94,7 +101,7 @@ impl<'a> TokenGroup<'a> {
                 let cc = &code[p .. p + 2];
                 if cc == "==" || cc == "!=" || cc == "<=" || cc == ">=" {
                     tokens.push(Token::new_opera(cc, code, p, 2));
-                    p += 2;
+                    p += 2; 
                     continue;
                 }
             }
@@ -159,6 +166,10 @@ impl<'a> TokenGroup<'a> {
     }
 
     pub fn get_current_token(&self) -> Token {
+        if self.is_end() {
+            eprintln!("It's over");
+            std::process::exit(1);
+        }
         return self.tokens[self.point];
     }
 
@@ -171,7 +182,11 @@ impl<'a> TokenGroup<'a> {
     }
 
     pub fn current_token_error(&self, message: String) {
-        self.tokens[self.point].token_error(message);
+        if self.is_end() {
+            self.tokens[self.point - 1].next_empty_token_error(message);
+        } else {
+            self.tokens[self.point].token_error(message);
+        }
     }
 
     pub fn previous_token_error(&self, message: String) {
