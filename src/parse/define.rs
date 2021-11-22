@@ -1,6 +1,7 @@
 use crate::tokenize::TokenGroup;
 use super::struc::Struct;
 use super::func::Func;
+use super::typed::Type;
 
 fn is_exist_struct_name(strucs: &Vec<Struct>, name: &str) -> bool {
     if let Some(_) = strucs.iter().find(|&struc| struc.name == name) {
@@ -41,6 +42,7 @@ fn is_exist_name(strucs: &Vec<Struct>, funcs: &Vec<Func>, skills: &Vec<Skill>, n
 pub struct Skill {
     pub name: String,
     pub funcs: Vec<Func>,
+    extends: Vec<(Type, Struct)>,
 }
 
 pub struct DefGroup {
@@ -69,7 +71,7 @@ impl DefGroup {
     }
 
     fn func_def(&self, tokens: &mut TokenGroup, skills: &Vec<Skill>) -> Option<Func> {
-        if tokens.is_equal("define"){
+        if tokens.is_equal("define") {
             if let Some(name) = tokens.is_ident() {
                 let name = String::from(name);
                 if is_exist_name(&self.strucs, &self.funcs, &skills, name.as_str()) {
@@ -86,7 +88,7 @@ impl DefGroup {
     }
 
     fn skill_def(&mut self, tokens: &mut TokenGroup, skills: &Vec<Skill>) -> Option<Skill> {
-        if tokens.is_equal("skill"){
+        if tokens.is_equal("skill") {
             if let Some(name) = tokens.is_ident() {
                 if is_exist_name(&self.strucs, &self.funcs, &skills, name) {
                     let message = format!("The skill name \"{}\" already exists.", name);
@@ -102,8 +104,18 @@ impl DefGroup {
         return None;
     }
 
+    fn extend_def(&mut self, tokens: &mut TokenGroup) -> Option<(Type, Struct)> {
+        if tokens.is_equal("extend") {
+            let typed = Type::type_spec(tokens, &self.strucs);
+            let extend = Struct::struc(tokens, String::from(""), &self.strucs);
+            return Some((typed, extend));
+        }
+        return None;
+    }
+
     fn define_in_skill(&mut self, tokens: &mut TokenGroup, name: String, skills: &Vec<Skill>) -> Skill {
         let mut skill_funcs = vec![];
+        let mut skill_extends: Vec<(Type, Struct)> = vec![];
 
         tokens.expected("{");
         while !tokens.is_equal("}") {
@@ -113,6 +125,11 @@ impl DefGroup {
                 self.num_of_funcs += 1;
                 continue;
             }
+            // skill extend
+            if let Some(skill_extend) = self.extend_def(tokens) {
+                skill_extends.push(skill_extend);
+                continue;
+            }
             tokens.current_token_error(String::from("unvalid define in skill"));
             std::process::exit(1);
         }
@@ -120,6 +137,7 @@ impl DefGroup {
         return Skill {
             name: name,
             funcs: skill_funcs,
+            extends: skill_extends,
         }
     }
 
