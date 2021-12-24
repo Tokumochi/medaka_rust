@@ -63,6 +63,7 @@ assert 5 "struct s1 { a: i32, b: i8 } struct s2{ c: s1, d: i32 } struct s3{ e: s
 assert 3 "define main(): i32 { dec a: i32 = 1; { dec b: i32 = 2; { dec c: i32 = 3; b = c; } { dec d: i32 = b; } a = b; } return a; }"
 assert 1 "skill skill_test { define skill_func(): i32 { dec a: i32 = 10; dec b: i32 = 5; return a + b; } } define main(): i32 { return 1; }"
 assert 10 "skill ret_skill { define ret_10(): i32 { return 10; } } define main(): i32 { |ret_skill| { return ret_10(); } }"
-assert 5 "skill extend_test { extend i32 { a: i32, b: i8 } } define main(): i32 { return 5; }"
+assert 3 "skill extend_test { extend i32 { a: i32, b: i8 } } define main(): i32 { |extend_test| { dec x: i32 = 3; return x; } return 5; }"
+assert 3 "struct hoge { h1: i32, h2: i8, h3: i32 } skill extend_test { extend i32 { a: i32, b: hoge } extend hoge { c: i32, b: hoge } } define main(): i32 { |extend_test| { dec x: i32 = 3, y: hoge; return x; } return 5; }"
 
 echo OK 

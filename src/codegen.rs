@@ -184,7 +184,7 @@ pub fn codegen<'a>(defs: DefGroup) {
     for func in defs.funcs {
         let mut param_types = vec![];
         for param in &func.params {
-            param_types.push(gen_type(&param.typed, &strucs, &context).into());
+            param_types.push(gen_type(&param.default.typed, &strucs, &context).into());
         }
 
         let func_value = module.add_function(&func.name, gen_type(&func.typed, &strucs, &context).fn_type(&param_types, false), None);
@@ -195,12 +195,20 @@ pub fn codegen<'a>(defs: DefGroup) {
 
         let ret_value = builder.build_alloca(gen_type(&func.typed, &strucs, &context), "return");
 
-        let mut locals = vec![];
+        let mut locals = Vec::<PointerValue>::with_capacity(func.num_of_locals);
+        unsafe { locals.set_len(func.num_of_locals); }
+
         for param in &func.params {
-            locals.push(builder.build_alloca(gen_type(&param.typed, &strucs, &context), param.name.as_str()));
+            locals[param.default.number] = builder.build_alloca(gen_type(&param.default.typed, &strucs, &context), param.default.name.as_str());
+            if let Some(extend) = &param.extend {
+                locals[extend.number] = builder.build_alloca(gen_type(&extend.typed, &strucs, &context), extend.name.as_str());
+            }
         }
-        for var in func.locals {
-            locals.push(builder.build_alloca(gen_type(&var.typed, &strucs, &context), var.name.as_str()));
+        for local in &func.locals {
+            locals[local.default.number] = builder.build_alloca(gen_type(&local.default.typed, &strucs, &context), local.default.name.as_str());
+            if let Some(extend) = &local.extend {
+                locals[extend.number] = builder.build_alloca(gen_type(&extend.typed, &strucs, &context), extend.name.as_str());
+            }
         }
 
         for (index, param) in func_value.get_param_iter().enumerate() {

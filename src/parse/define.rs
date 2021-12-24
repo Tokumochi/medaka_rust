@@ -41,11 +41,13 @@ fn is_exist_name(strucs: &Vec<Struct>, funcs: &Vec<Func>, skills: &Vec<Skill>, n
 
 pub struct Skill {
     pub name: String,
+    strucs: Vec<Struct>,
     pub funcs: Vec<Func>,
-    extends: Vec<(Type, Struct)>,
+    pub extends: Vec<(Type, usize)>, // (extended-type, extend-struct-index)
 }
 
 pub struct DefGroup {
+    num_of_strucs: usize,
     num_of_funcs: usize,
     pub strucs: Vec<Struct>,
     pub funcs: Vec<Func>,
@@ -62,7 +64,7 @@ impl DefGroup {
                     tokens.previous_token_error(message);
                     std::process::exit(1);
                 }
-                return Some(Struct::struc(tokens, name, &self.strucs));
+                return Some(Struct::struc(tokens, self.num_of_strucs, name, &self.strucs));
             }
             tokens.current_token_error("identifier is expected".to_string());
             std::process::exit(1);
@@ -107,15 +109,16 @@ impl DefGroup {
     fn extend_def(&mut self, tokens: &mut TokenGroup) -> Option<(Type, Struct)> {
         if tokens.is_equal("extend") {
             let typed = Type::type_spec(tokens, &self.strucs);
-            let extend = Struct::struc(tokens, String::from(""), &self.strucs);
+            let extend = Struct::struc(tokens, self.num_of_strucs, String::from(""), &self.strucs);
             return Some((typed, extend));
         }
         return None;
     }
 
     fn define_in_skill(&mut self, tokens: &mut TokenGroup, name: String, skills: &Vec<Skill>) -> Skill {
+        let mut skill_strucs = vec![];
         let mut skill_funcs = vec![];
-        let mut skill_extends: Vec<(Type, Struct)> = vec![];
+        let mut skill_extends = vec![];
 
         tokens.expected("{");
         while !tokens.is_equal("}") {
@@ -126,8 +129,10 @@ impl DefGroup {
                 continue;
             }
             // skill extend
-            if let Some(skill_extend) = self.extend_def(tokens) {
-                skill_extends.push(skill_extend);
+            if let Some((typed, extend_struct)) = self.extend_def(tokens) {
+                skill_strucs.push(extend_struct);
+                skill_extends.push((typed, self.num_of_strucs));
+                self.num_of_strucs += 1;
                 continue;
             }
             tokens.current_token_error(String::from("unvalid define in skill"));
@@ -136,18 +141,21 @@ impl DefGroup {
 
         return Skill {
             name: name,
+            strucs: skill_strucs,
             funcs: skill_funcs,
             extends: skill_extends,
         }
     }
 
     pub fn define_in_general(tokens: &mut TokenGroup) -> Self {
-        let mut defs = Self { num_of_funcs: 0, strucs: vec![], funcs: vec![] };
+        let mut defs = Self { num_of_strucs: 0, num_of_funcs: 0, strucs: vec![], funcs: vec![] };
         let mut skills = vec![];
+
         while !tokens.is_end() {
             // struct
             if let Some(struc) = defs.struc_def(tokens, &skills) {
                 defs.strucs.push(struc);
+                defs.num_of_strucs += 1;
                 continue;
             }
             // function
@@ -166,9 +174,11 @@ impl DefGroup {
         }
 
         for skill in &mut skills {
+            defs.strucs.append(&mut skill.strucs);
             defs.funcs.append(&mut skill.funcs);
         }
 
+        defs.strucs.sort_by(|a, b| a.number.cmp(&b.number));
         defs.funcs.sort_by(|a, b| a.number.cmp(&b.number));
 
         return defs;
