@@ -184,7 +184,8 @@ pub fn codegen<'a>(defs: DefGroup) {
     for func in defs.funcs {
         let mut param_types = vec![];
         for param in &func.params {
-            param_types.push(gen_type(&param.default.typed, &strucs, &context).into());
+            let (_, default_param_typed) = param.default;
+            param_types.push(gen_type(&default_param_typed, &strucs, &context).into());
         }
 
         let func_value = module.add_function(&func.name, gen_type(&func.typed, &strucs, &context).fn_type(&param_types, false), None);
@@ -199,15 +200,23 @@ pub fn codegen<'a>(defs: DefGroup) {
         unsafe { locals.set_len(func.num_of_locals); }
 
         for param in &func.params {
-            locals[param.default.number] = builder.build_alloca(gen_type(&param.default.typed, &strucs, &context), param.default.name.as_str());
-            if let Some(extend) = &param.extend {
-                locals[extend.number] = builder.build_alloca(gen_type(&extend.typed, &strucs, &context), extend.name.as_str());
+            // default
+            let (default_number, default_typed) = param.default;
+            locals[default_number] = builder.build_alloca(gen_type(&default_typed, &strucs, &context), param.name.as_str());
+
+            // extend
+            if let Some((extend_number, extend_typed)) = &param.extend {
+                locals[*extend_number] = builder.build_alloca(gen_type(&extend_typed, &strucs, &context), format!("{}(extend)", param.name).as_str());
             }
         }
         for local in &func.locals {
-            locals[local.default.number] = builder.build_alloca(gen_type(&local.default.typed, &strucs, &context), local.default.name.as_str());
-            if let Some(extend) = &local.extend {
-                locals[extend.number] = builder.build_alloca(gen_type(&extend.typed, &strucs, &context), extend.name.as_str());
+            // default
+            let (default_number, default_typed) = local.default;
+            locals[default_number] = builder.build_alloca(gen_type(&default_typed, &strucs, &context), local.name.as_str());
+
+            // extend
+            if let Some((extend_number, extend_typed)) = &local.extend {
+                locals[*extend_number] = builder.build_alloca(gen_type(&extend_typed, &strucs, &context), format!("{}(extend)", local.name).as_str());
             }
         }
 

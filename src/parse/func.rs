@@ -3,22 +3,16 @@ use super::typed::{IntType, Type};
 use super::struc::Struct;
 use super::define::Skill;
 
-#[derive(PartialEq, Clone)]
-pub struct Var {
-    pub number: usize,
-    pub name: String,
-    pub typed: Type,
-}
-
 #[derive(PartialEq)]
-pub struct SuperVar {
-    pub default: Var,
-    pub extend: Option<Var>,
+pub struct Var {
+    pub name: String,
+    pub default: (usize, Type),      // (index of default-var, type of default-var)
+    pub extend: Option<(usize, Type)>, // (index of extend-var, type of extend-var) if exist
 }
 
 // local variable scope in function definition
 pub struct VarScope {
-    super_vars: Vec<SuperVar>,
+    vars: Vec<Var>,
     child: Option<Box<VarScope>>,
 }
 
@@ -26,9 +20,10 @@ impl VarScope {
 
     // return (index of var, type of var)
     fn find_scope_var(&self, name: &str) -> Option<(usize, Type)> {
-        for super_var in &self.super_vars {
-            if super_var.default.name == name {
-                return Some((super_var.default.number, super_var.default.typed));
+        for var in &self.vars {
+            if var.name == name {
+                let (number, typed) = var.default;
+                return Some((number, typed));
             }
         }
 
@@ -38,36 +33,29 @@ impl VarScope {
         return None;
     }
 
-    fn new_scope_var(&mut self, number: usize, name: String, typed: Type) {
+    fn new_scope_var(&mut self, name: String, default_number: usize, default_typed: Type) {
         if let Some(child_scope) = &mut self.child {
-            child_scope.new_scope_var(number, name, typed);
+            child_scope.new_scope_var(name, default_number, default_typed);
             return;
         }
 
-        self.super_vars.push(SuperVar {
-            default: Var {
-                number: number,
-                name: name,
-                typed: typed,
-            },
+        self.vars.push(Var {
+            name: name,
+            default: (default_number, default_typed),
             extend: None,
         });
     }
 
-    fn extend_scope_var(&mut self, number: usize, name: String, extend_typed: Type) {
-        for super_var in &mut self.super_vars {
-            if super_var.default.name == name {
-                super_var.extend = Some(Var {
-                    number: number,
-                    name: format!("{}(extend)", name),
-                    typed: extend_typed,
-                });
+    fn extend_scope_var(&mut self, name: String, extend_number: usize, extend_typed: Type) {
+        for var in &mut self.vars {
+            if var.name == name {
+                var.extend = Some((extend_number, extend_typed));
                 return;
             }
         }
 
         if let Some(child_scope) = &mut self.child {
-            child_scope.extend_scope_var(number, name, extend_typed)
+            child_scope.extend_scope_var(name, extend_number, extend_typed)
         }
     }
 
@@ -78,19 +66,19 @@ impl VarScope {
         }
 
         let scope = VarScope {
-            super_vars: vec![],
+            vars: vec![],
             child: None,
         };
         self.child = Some(Box::new(scope));
     }
 
-    fn leave_scope(&mut self, locals: &mut Vec<SuperVar>) {
+    fn leave_scope(&mut self, locals: &mut Vec<Var>) {
         if let Some(child_scope) = &mut self.child {
             if let Some(_) = child_scope.child {
                 child_scope.leave_scope(locals);
             } else {
                 // add super variables to locals
-                locals.append(&mut child_scope.super_vars);
+                locals.append(&mut child_scope.vars);
                 self.child = None;
             }
             return;
@@ -133,7 +121,7 @@ struct ParsingManager<'a> {
     top_var_scope: &'a mut VarScope,
     skill_scope: &'a mut SkillScope<'a>,
     num_of_locals: usize,
-    locals: Vec<SuperVar>,
+    locals: Vec<Var>,
     strucs: &'a Vec<Struct>,
     funcs: &'a Vec<Func>,
     skills: &'a Vec<Skill>,
@@ -150,7 +138,7 @@ impl<'a> ParsingManager<'a> {
     }
 
     // return (number of func, type of func, param vars)
-    fn find_func(&self, name: &str) -> Option<(usize, Type, &[SuperVar])> {
+    fn find_func(&self, name: &str) -> Option<(usize, Type, &[Var])> {
         // general
         for func in self.funcs {
             if func.name.as_str() == name {
@@ -167,7 +155,7 @@ impl<'a> ParsingManager<'a> {
         }
         // self
         if name == self.name {
-            return Some((self.funcs.len(), self.typed, &self.top_var_scope.super_vars));
+            return Some((self.funcs.len(), self.typed, &self.top_var_scope.vars));
         }
         return None;
     }
@@ -195,11 +183,11 @@ impl<'a> ParsingManager<'a> {
                 let extend_typed = self.skill_scope.find_typed(typed);
 
                 // add default variable to var scope
-                self.top_var_scope.new_scope_var(self.num_of_locals, name.clone(), typed);
+                self.top_var_scope.new_scope_var(name.clone(), self.num_of_locals, typed);
                 self.num_of_locals += 1;
                 // add extend variable to var scope if Super is expected
                 if let Some(extend_typed) = extend_typed {
-                    self.top_var_scope.extend_scope_var(self.num_of_locals, name, extend_typed);
+                    self.top_var_scope.extend_scope_var(name, self.num_of_locals, extend_typed);
                     self.num_of_locals += 1;
                 }
 
@@ -471,7 +459,8 @@ impl Expr {
                         tokens.expected(",");
                     }
                     let arg = Expr::expr(tokens, manager);
-                    args.push(Expr::new_type_conv_node(&tokens.get_previous_token(), param.default.typed, arg));
+                    let (_, default_param_typed) = param.default;
+                    args.push(Expr::new_type_conv_node(&tokens.get_previous_token(), default_param_typed, arg));
                 }
                 tokens.expected(")");
                 return Expr::new_call_node(index, typed, args);
@@ -632,8 +621,8 @@ pub struct Func {
     pub name: String,
     pub typed: Type,
     pub num_of_locals: usize,
-    pub params: Vec<SuperVar>,
-    pub locals: Vec<SuperVar>,
+    pub params: Vec<Var>,
+    pub locals: Vec<Var>,
     pub body: Stmt,
 }
 
@@ -642,7 +631,7 @@ impl Func {
     pub fn func(tokens: &mut TokenGroup, number: usize, name: String, strucs: &Vec<Struct>, funcs: &Vec<Func>, skills: &Vec<Skill>) -> Func {
         tokens.expected("(");
 
-        let mut top_var_scope = VarScope { super_vars: vec![], child: None };
+        let mut top_var_scope = VarScope { vars: vec![], child: None };
         let mut skill_scope = SkillScope { skill: None };
         let mut manager = ParsingManager { name: name.clone(), typed: Type::Int(IntType::Int32), skill_scope: &mut skill_scope, top_var_scope: &mut top_var_scope, num_of_locals: 0, locals: vec![], funcs: funcs, strucs: strucs, skills: skills };
 
@@ -672,7 +661,7 @@ impl Func {
             name: name,
             typed: typed,
             num_of_locals: manager.num_of_locals,
-            params: top_var_scope.super_vars,
+            params: top_var_scope.vars,
             locals: locals,
             body: body,
         }
