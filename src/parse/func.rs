@@ -3,6 +3,21 @@ use super::typed::{IntType, Type};
 use super::struc::Struct;
 use super::define::Skill;
 
+pub struct FuncParse<'a> {
+    id: usize,
+    name: String,
+    typed: Type,
+    top_var_scope: VarScope,
+    top_skill_scope: SkillScope<'a>,
+    num_of_locals: usize,
+    locals: Vec<Var>,
+
+    strucs: &'a Vec<Struct>,
+    funcs: &'a Vec<Func>,
+    skills: &'a Vec<Skill>,
+    belong: Option<&'a Skill>,
+}
+
 #[derive(PartialEq)]
 pub struct Var {
     pub name: String,
@@ -22,8 +37,8 @@ impl VarScope {
     fn find_scope_var(&self, name: &str) -> Option<(usize, Type)> {
         for var in &self.vars {
             if var.name == name {
-                let (number, typed) = var.default;
-                return Some((number, typed));
+                let (index, typed) = var.default;
+                return Some((index, typed));
             }
         }
 
@@ -33,29 +48,29 @@ impl VarScope {
         return None;
     }
 
-    fn new_scope_var(&mut self, name: String, default_number: usize, default_typed: Type) {
+    fn new_scope_var(&mut self, name: String, default_index: usize, default_typed: Type) {
         if let Some(child_scope) = &mut self.child {
-            child_scope.new_scope_var(name, default_number, default_typed);
+            child_scope.new_scope_var(name, default_index, default_typed);
             return;
         }
 
         self.vars.push(Var {
             name: name,
-            default: (default_number, default_typed),
+            default: (default_index, default_typed),
             extend: None,
         });
     }
 
-    fn extend_scope_var(&mut self, name: String, extend_number: usize, extend_typed: Type) {
+    fn extend_scope_var(&mut self, name: String, extend_index: usize, extend_typed: Type) {
         for var in &mut self.vars {
             if var.name == name {
-                var.extend = Some((extend_number, extend_typed));
+                var.extend = Some((extend_index, extend_typed));
                 return;
             }
         }
 
         if let Some(child_scope) = &mut self.child {
-            child_scope.extend_scope_var(name, extend_number, extend_typed)
+            child_scope.extend_scope_var(name, extend_index, extend_typed)
         }
     }
 
@@ -88,7 +103,7 @@ impl VarScope {
     }
 }
 
-struct SkillScope<'a> {
+pub struct SkillScope<'a> {
     skill: Option<&'a Skill>,
 }
 
@@ -114,20 +129,7 @@ impl<'a> SkillScope<'a> {
     }
 }
 
-// Parsing Manager
-struct ParsingManager<'a> {
-    name: String,
-    typed: Type,
-    top_var_scope: &'a mut VarScope,
-    skill_scope: &'a mut SkillScope<'a>,
-    num_of_locals: usize,
-    locals: Vec<Var>,
-    strucs: &'a Vec<Struct>,
-    funcs: &'a Vec<Func>,
-    skills: &'a Vec<Skill>,
-}
-
-impl<'a> ParsingManager<'a> {
+impl<'a> FuncParse<'a> {
 
     // return type of struct
     fn find_struc(&self, typed: Type) -> Option<&Struct> {
@@ -137,25 +139,25 @@ impl<'a> ParsingManager<'a> {
         return None;
     }
 
-    // return (number of func, type of func, param vars)
+    // return (id of func, type of func, param vars)
     fn find_func(&self, name: &str) -> Option<(usize, Type, &[Var])> {
         // general
         for func in self.funcs {
             if func.name.as_str() == name {
-                return Some((func.number, func.typed, &func.params));
+                return Some((func.id, func.typed, &func.params));
             }
         }
         // skill
-        if let Some(skill) = self.skill_scope.skill {
+        if let Some(skill) = self.top_skill_scope.skill {
             for func in &skill.funcs {
                 if func.name.as_str() == name {
-                    return Some((func.number, func.typed, &func.params));
+                    return Some((func.id, func.typed, &func.params));
                 }
             }
         }
         // self
         if name == self.name {
-            return Some((self.funcs.len(), self.typed, &self.top_var_scope.vars));
+            return Some((self.id, self.typed, &self.top_var_scope.vars));
         }
         return None;
     }
@@ -163,7 +165,7 @@ impl<'a> ParsingManager<'a> {
     fn find_and_enter_skill(&mut self, tokens: &mut TokenGroup, name: &str) {
         for skill in self.skills {
             if skill.name.as_str() == name {
-                self.skill_scope.enter_scope(skill);
+                self.top_skill_scope.enter_scope(skill);
                 return;
             }
         }
@@ -180,7 +182,7 @@ impl<'a> ParsingManager<'a> {
 
                 let default_var_index = self.num_of_locals;
                 let typed = Type::type_spec(tokens, self.strucs);
-                let extend_typed = self.skill_scope.find_typed(typed);
+                let extend_typed = self.top_skill_scope.find_typed(typed);
 
                 // add default variable to var scope
                 self.top_var_scope.new_scope_var(name.clone(), self.num_of_locals, typed);
@@ -292,7 +294,7 @@ impl Expr {
                 }
             }
         }
-        token.token_error("type mismatch".to_string());
+        token.token_error(format!("type mismatch"));
         std::process::exit(1);
     }
     
@@ -322,33 +324,36 @@ impl Expr {
         token.token_error("type mismatch".to_string());
         std::process::exit(1);
     }
+}
+
+impl<'a> FuncParse<'a> {
 
     // expr -> assign
-    fn expr(tokens: &mut TokenGroup, manager: &ParsingManager) -> Self {
-        Expr::assign(tokens, manager)
+    fn expr(&self, tokens: &mut TokenGroup) -> Expr {
+        self.assign(tokens)
     }
 
     // assign -> equality ("=" assign)?
-    fn assign(tokens: &mut TokenGroup, manager: &ParsingManager) -> Self {
-        let lhs = Expr::equality(tokens, manager);
+    fn assign(&self, tokens: &mut TokenGroup) -> Expr {
+        let lhs = self.equality(tokens);
         if tokens.is_equal("=") {
-            let rhs = Expr::assign(tokens, manager);
+            let rhs = self.assign(tokens);
             return Expr::new_assign_node(&tokens.get_previous_token(), lhs, rhs);
         }
         return lhs;
     }
 
     // equality -> relational ("==" relational | "!=" relational)*
-    fn equality(tokens: &mut TokenGroup, manager: &ParsingManager) -> Self {
-        let mut node = Expr::relational(tokens, manager);
+    fn equality(&self, tokens: &mut TokenGroup) -> Expr {
+        let mut node = self.relational(tokens);
         loop {
             if tokens.is_equal("==") {
-                let rhs = Expr::relational(tokens, manager);
+                let rhs = self.relational(tokens);
                 node = Expr::new_binary_node(&tokens.get_previous_token(), BinaryKind::Equ, node, rhs);
                 continue;
             }
             if tokens.is_equal("!=") {
-                let rhs = Expr::relational(tokens, manager);
+                let rhs = self.relational(tokens);
                 node = Expr::new_binary_node(&tokens.get_previous_token(), BinaryKind::Neq, node, rhs);
                 continue;
             }
@@ -357,26 +362,26 @@ impl Expr {
     }
 
     // relational -> add ("<" add | "<=" add | ">" add | ">=" add)*
-    fn relational(tokens: &mut TokenGroup, manager: &ParsingManager) -> Self {
-        let mut node = Expr::add(tokens, manager);
+    fn relational(&self, tokens: &mut TokenGroup) -> Expr {
+        let mut node = self.add(tokens);
         loop {
             if tokens.is_equal("<") {
-                let rhs = Expr::add(tokens, manager);
+                let rhs = self.add(tokens);
                 node = Expr::new_binary_node(&tokens.get_previous_token(), BinaryKind::Les, node, rhs);
                 continue;
             }
             if tokens.is_equal("<=") {
-                let rhs = Expr::add(tokens, manager);
+                let rhs = self.add(tokens);
                 node = Expr::new_binary_node(&tokens.get_previous_token(), BinaryKind::Leq, node, rhs);
                 continue;
             }
             if tokens.is_equal(">") {
-                let lhs = Expr::add(tokens, manager);
+                let lhs = self.add(tokens);
                 node = Expr::new_binary_node(&tokens.get_previous_token(), BinaryKind::Les, lhs, node);
                 continue;
             }
             if tokens.is_equal(">=") {
-                let lhs = Expr::add(tokens, manager);
+                let lhs = self.add(tokens);
                 node = Expr::new_binary_node(&tokens.get_previous_token(), BinaryKind::Leq, lhs, node);
                 continue;
             }
@@ -385,16 +390,16 @@ impl Expr {
     }
     
     // add -> mul ("+" mul | "-" mul)*
-    fn add(tokens: &mut TokenGroup, manager: &ParsingManager) -> Self {
-        let mut node = Expr::mul(tokens, manager);
+    fn add(&self, tokens: &mut TokenGroup) -> Expr {
+        let mut node = self.mul(tokens);
         loop {
             if tokens.is_equal("+") {
-                let rhs = Expr::mul(tokens, manager);
+                let rhs = self.mul(tokens);
                 node = Expr::new_binary_node(&tokens.get_previous_token(), BinaryKind::Add, node, rhs);
                 continue;
             }
             if tokens.is_equal("-") {
-                let rhs = Expr::mul(tokens, manager);
+                let rhs = self.mul(tokens);
                 node = Expr::new_binary_node(&tokens.get_previous_token(), BinaryKind::Sub, node, rhs);
                 continue;
             }
@@ -403,16 +408,16 @@ impl Expr {
     }
     
     // mul -> unary ("*" unary | "/" unary)*
-    fn mul(tokens: &mut TokenGroup, manager: &ParsingManager) -> Self {
-        let mut node = Expr::unary(tokens, manager);
+    fn mul(&self, tokens: &mut TokenGroup) -> Expr {
+        let mut node = self.unary(tokens);
         loop {
             if tokens.is_equal("*") {
-                let rhs = Expr::unary(tokens, manager);
+                let rhs = self.unary(tokens);
                 node = Expr::new_binary_node(&tokens.get_previous_token(), BinaryKind::Mul, node, rhs);
                 continue;
             }
             if tokens.is_equal("/") {
-                let rhs = Expr::unary(tokens, manager);
+                let rhs = self.unary(tokens);
                 node = Expr::new_binary_node(&tokens.get_previous_token(), BinaryKind::Div, node, rhs);
                 continue;
             }
@@ -421,58 +426,60 @@ impl Expr {
     }
 
     // unary -> ("+" | "-") unary | primary
-    fn unary(tokens: &mut TokenGroup, manager: &ParsingManager) -> Self {
+    fn unary(&self, tokens: &mut TokenGroup) -> Expr {
         if tokens.is_equal("+") {
-            return Expr::unary(tokens, manager);
+            return self.unary(tokens);
         }
         if tokens.is_equal("-") {
-            let ohs = Expr::unary(tokens, manager);
+            let ohs = self.unary(tokens);
             if let Type::Int(_) = ohs.typed {
                 return Expr::new_unary_node(UnaryKind::Neg, ohs);
             }
             tokens.previous_token_error("negative operation is for int type".to_string());
             std::process::exit(1);
         }
-        return Expr::primary(tokens, manager);
+        return self.primary(tokens);
     }
     
     // primary -> "(" expr ")" | ident ("(" (expr ("," expr)*)? ")")? | num
-    fn primary(tokens: &mut TokenGroup, manager: &ParsingManager) -> Self {
+    fn primary(&self, tokens: &mut TokenGroup) -> Expr {
         if tokens.is_equal("(") {
-            let node = Expr::expr(tokens, manager);
+            let node = self.expr(tokens);
             tokens.expected(")");
             return node;
         }
 
         if let Some(name) = tokens.is_ident() {
+            let name = name.to_string();
             // call
-            if let Some((index, typed, params)) = manager.find_func(name) {
-                let name = name.to_string();
+            if let Some((id, typed, params)) = self.find_func(name.as_str()) {
                 tokens.expected("(");
                 let mut args = vec![];
                 for (index, param) in params.iter().enumerate() {
                     if tokens.is_equal(")") {
+                        // num of params > num of args
                         tokens.previous_token_error(format!("The function \"{}\" needs {} args, but found only {} args.", name, params.len(), index));
                         std::process::exit(1);
                     }
+                    // comma splice
                     if index > 0 {
                         tokens.expected(",");
                     }
-                    let arg = Expr::expr(tokens, manager);
+                    let arg = self.expr(tokens);
                     let (_, default_param_typed) = param.default;
                     args.push(Expr::new_type_conv_node(&tokens.get_previous_token(), default_param_typed, arg));
                 }
-                tokens.expected(")");
-                return Expr::new_call_node(index, typed, args);
+                tokens.expected(")"); // num of params < num of args
+                return Expr::new_call_node(id, typed, args);
             }
             // storage
-            if let Some((var_index, typed)) = manager.top_var_scope.find_scope_var(name) {
+            if let Some((var_index, typed)) = self.top_var_scope.find_scope_var(name.as_str()) {
                 // variable
                 let mut storage_kind = StorageKind::Var(var_index);
                 let mut storage_typed = typed;
                 // member
                 'period: while tokens.is_equal(".") {
-                    if let Some(struc) = manager.find_struc(storage_typed) {
+                    if let Some(struc) = self.find_struc(storage_typed) {
                         if let Some(name) = tokens.is_ident() {
                             for (member_index, (member_name, member_typed)) in struc.members.iter().enumerate() {
                                 if name == member_name {
@@ -518,30 +525,30 @@ pub struct Stmt {
     pub kind: StmtKind,
 }
 
-impl Stmt {
+impl<'a> FuncParse<'a> {
     // stmt -> "return" expr ";"
     //       | "if" expr ":" stmt ("else" stmt)?
     //       | "|" skill-ident "|" "{" block_stmt
     //       | "{" block_stmt
     //       | expr_stmt
-    fn stmt(tokens: &mut TokenGroup, manager: &mut ParsingManager) -> Self {
+    fn stmt(&mut self, tokens: &mut TokenGroup) -> Stmt {
         if tokens.is_equal("return") {
-            let ret = Expr::expr(tokens, manager);
-            let node = Self { kind: StmtKind::Ret(Expr::new_type_conv_node(&tokens.get_previous_token(), manager.typed, ret)) };
+            let ret = self.expr(tokens);
+            let node = Stmt { kind: StmtKind::Ret(Expr::new_type_conv_node(&tokens.get_previous_token(), self.typed, ret)) };
             tokens.expected(";");
             return node;
         }
 
         if tokens.is_equal("if") {
-            let cond = Expr::expr(tokens, manager);
+            let cond = self.expr(tokens);
             if let Type::Int(_) = cond.typed {
                 tokens.expected(":");
-                let then = Stmt::stmt(tokens, manager);
+                let then = self.stmt(tokens);
                 if tokens.is_equal("else") {
-                    let els = Stmt::stmt(tokens, manager);
-                    return Self { kind: StmtKind::If(cond, Box::new(then), Some(Box::new(els))) };
+                    let els = self.stmt(tokens);
+                    return Stmt { kind: StmtKind::If(cond, Box::new(then), Some(Box::new(els))) };
                 } else {
-                    return Self { kind: StmtKind::If(cond, Box::new(then), None) };
+                    return Stmt { kind: StmtKind::If(cond, Box::new(then), None) };
                 }
             }
             tokens.previous_token_error("if-condition is for int type".to_string());
@@ -551,13 +558,13 @@ impl Stmt {
         if tokens.is_equal("|") {
             if let Some(name) = tokens.is_ident() {
                 let name = String::from(name);
-                manager.find_and_enter_skill(tokens, name.as_str());
+                self.find_and_enter_skill(tokens, name.as_str());
 
                 tokens.expected("|");
                 tokens.expected("{");
-                let stmts_in_skill = Stmt::block_stmt(tokens, manager);
+                let stmts_in_skill = self.block_stmt(tokens);
 
-                manager.skill_scope.leave_scope();
+                self.top_skill_scope.leave_scope();
                 return stmts_in_skill;
             }
             tokens.current_token_error(String::from("expected skill name"));
@@ -565,27 +572,27 @@ impl Stmt {
         }
 
         if tokens.is_equal("{") {
-            return Stmt::block_stmt(tokens, manager);
+            return self.block_stmt(tokens);
         }
 
-        return Stmt::expr_stmt(tokens, manager);
+        return self.expr_stmt(tokens);
     }
 
     // block -> stmt* "}"
-    fn block_stmt(tokens: &mut TokenGroup, manager: &mut ParsingManager) -> Self {
+    fn block_stmt(&mut self, tokens: &mut TokenGroup) -> Stmt {
         let mut body = vec![];
 
-        manager.top_var_scope.enter_scope();
+        self.top_var_scope.enter_scope();
         while !tokens.is_equal("}") {
-            body.push(Stmt::stmt(tokens, manager));
+            body.push(self.stmt(tokens));
         }
-        manager.top_var_scope.leave_scope(&mut manager.locals);
+        self.top_var_scope.leave_scope(&mut self.locals);
     
-        return Self { kind: StmtKind::Block(body) };
+        return Stmt { kind: StmtKind::Block(body) };
     }
 
     // declaration -> (declarator ("=" expr)? ("," declarator ("=" expr)?)*)? ";"
-    fn declaration(tokens: &mut TokenGroup, manager: &mut ParsingManager) -> Self {
+    fn declaration(&mut self, tokens: &mut TokenGroup) -> Stmt {
         let mut body = vec![];
         let mut is_first = true;
         while !tokens.is_equal(";") {
@@ -594,30 +601,30 @@ impl Stmt {
             } else {
                 tokens.expected(",");
             }
-            let (index, typed) = manager.declarator(tokens);
+            let (index, typed) = self.declarator(tokens);
             if tokens.is_equal("=") {
-                let rhs = Expr::expr(tokens, manager);
-                body.push(Self { kind: StmtKind::ExprStmt(Expr::new_assign_node(&tokens.get_previous_token(), Expr::new_storage_node(StorageKind::Var(index), typed), rhs)) });
+                let rhs = self.expr(tokens);
+                body.push(Stmt { kind: StmtKind::ExprStmt(Expr::new_assign_node(&tokens.get_previous_token(), Expr::new_storage_node(StorageKind::Var(index), typed), rhs)) });
             }
         }
-        return Self {
+        return Stmt{
             kind: StmtKind::Block(body),
         };
     }
 
     // expr_stmt -> "dec" declaration |　expr ";"
-    fn expr_stmt(tokens: &mut TokenGroup, manager: &mut ParsingManager) -> Self {
+    fn expr_stmt(&mut self, tokens: &mut TokenGroup) -> Stmt {
         if tokens.is_equal("dec") {
-            return Stmt::declaration(tokens, manager);
+            return self.declaration(tokens);
         }
-        let node = Self { kind: StmtKind::ExprStmt(Expr::expr(tokens, manager)) };
+        let node = Stmt { kind: StmtKind::ExprStmt(self.expr(tokens)) };
         tokens.expected(";");
         return node;
     }
 }
 
 pub struct Func {
-    pub number: usize,
+    pub id: usize,
     pub name: String,
     pub typed: Type,
     pub num_of_locals: usize,
@@ -625,15 +632,15 @@ pub struct Func {
     pub locals: Vec<Var>,
     pub body: Stmt,
 }
-
-impl Func {
+/*
+impl<'a, 'b, 'c> FuncParse<'a, 'b, 'c> {
     // func -> "(" (declarator ("," declarator)*)? ")" ":" type_spec "{" block
-    pub fn func(tokens: &mut TokenGroup, number: usize, name: String, strucs: &Vec<Struct>, funcs: &Vec<Func>, skills: &Vec<Skill>) -> Func {
+    pub fn func(&mut self) -> Func {
         tokens.expected("(");
 
-        let mut top_var_scope = VarScope { vars: vec![], child: None };
-        let mut skill_scope = SkillScope { skill: None };
-        let mut manager = ParsingManager { name: name.clone(), typed: Type::Int(IntType::Int32), skill_scope: &mut skill_scope, top_var_scope: &mut top_var_scope, num_of_locals: 0, locals: vec![], funcs: funcs, strucs: strucs, skills: skills };
+        //let mut top_var_scope = VarScope { vars: vec![], child: None };
+        //let mut top_skill_scope = SkillScope { skill: None };
+        //let mut manager = ParsingManager { name: name.clone(), typed: Type::Int(IntType::Int32), skill_scope: &mut skill_scope, top_var_scope: &mut top_var_scope, num_of_locals: 0, locals: vec![], funcs: funcs, strucs: strucs, skills: skills };
 
         let mut is_first = true;
 
@@ -643,28 +650,74 @@ impl Func {
             } else {
                 tokens.expected(",");
             }
-            manager.declarator(tokens);
+            self.declarator();
         }
 
         tokens.expected(":");
-        let typed = Type::type_spec(tokens, strucs);
+        self.typed = Type::type_spec(tokens, self.strucs);
 
         tokens.expected("{");
 
-        manager.typed = typed;
-
-        let body = Stmt::block_stmt(tokens, &mut manager);
-        let locals = manager.locals;
+        let body = self.block_stmt();
     
         return Func {
-            number: number,
+            id: id,
             name: name,
-            typed: typed,
-            num_of_locals: manager.num_of_locals,
-            params: top_var_scope.vars,
-            locals: locals,
+            typed: self.typed,
+            num_of_locals: self.num_of_locals,
+            params: self.top_var_scope.vars,
+            locals: self.locals,
+            body: body,
+        }
+    }   
+}
+*/
+impl Func {
+    // func -> "(" (declarator ("," declarator)*)? ")" ":" type_spec "{" block
+    pub fn new(tokens: &mut TokenGroup, id: usize, name: String, strucs: &Vec<Struct>, funcs: &Vec<Func>, skills: &Vec<Skill>, belong: Option<&Skill>) -> Self {
+        let mut parse = FuncParse {
+            id: id,
+            name: name.clone(),
+            typed: Type::Int(IntType::Int32),
+            top_var_scope: VarScope { vars: vec![], child: None },
+            top_skill_scope: SkillScope { skill: None },
+            num_of_locals: 0,
+            locals: vec![],
+
+            strucs: &strucs,
+            funcs: &funcs,
+            skills: &skills,
+            belong: belong,
+        };
+
+        tokens.expected("(");
+
+        let mut is_first = true;
+
+        while !tokens.is_equal(")") {
+            if is_first {
+                is_first = false;
+            } else {
+                tokens.expected(",");
+            }
+            parse.declarator(tokens);
+        }
+
+        tokens.expected(":");
+        parse.typed = Type::type_spec(tokens, parse.strucs);
+
+        tokens.expected("{");
+
+        let body = parse.block_stmt(tokens);
+    
+        return Func {
+            id: id,
+            name: name,
+            typed: parse.typed,
+            num_of_locals: parse.num_of_locals,
+            params: parse.top_var_scope.vars,
+            locals: parse.locals,
             body: body,
         }
     }
-    
 }

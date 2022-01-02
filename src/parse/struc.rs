@@ -2,7 +2,7 @@ use crate::tokenize::TokenGroup;
 use super::typed::Type;
 
 pub struct Struct {
-    pub number: usize,
+    pub id: usize,
     pub name: String,
     pub members: Vec<(String, Type)>,
 }
@@ -27,9 +27,9 @@ impl Struct {
     }
 
     // struc -> "{" (decl_member ("," decl_member)*)? "}"
-    pub fn struc(tokens: &mut TokenGroup, number: usize, name: String, strucs: &Vec<Struct>) -> Self {
+    pub fn struc(tokens: &mut TokenGroup, id: usize, name: String, strucs: &Vec<Struct>) -> Self {
         tokens.expected("{");
-        let mut struc = Struct { number: number, name: name, members: vec![] };
+        let mut struc = Struct { id: id, name: name, members: vec![] };
         let mut is_first = true;
         while !tokens.is_equal("}") {
             if is_first {
