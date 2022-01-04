@@ -21,6 +21,7 @@ pub struct FuncParse<'a> {
 #[derive(PartialEq)]
 pub struct Var {
     pub name: String,
+    is_origin: bool,
     pub default: (usize, Type),      // (index of default-var, type of default-var)
     pub extend: Option<(usize, Type)>, // (index of extend-var, type of extend-var) if exist
 }
@@ -48,14 +49,15 @@ impl VarScope {
         return None;
     }
 
-    fn new_scope_var(&mut self, name: String, default_index: usize, default_typed: Type) {
+    fn new_scope_var(&mut self, name: String, is_origin: bool, default_index: usize, default_typed: Type) {
         if let Some(child_scope) = &mut self.child {
-            child_scope.new_scope_var(name, default_index, default_typed);
+            child_scope.new_scope_var(name, is_origin, default_index, default_typed);
             return;
         }
 
         self.vars.push(Var {
             name: name,
+            is_origin: is_origin,
             default: (default_index, default_typed),
             extend: None,
         });
@@ -174,7 +176,7 @@ impl<'a> FuncParse<'a> {
     }
 
     // declarator -> ident ":" type_spec
-    fn declarator(&mut self, tokens: &mut TokenGroup) -> (usize, Type) {
+    fn declarator(&mut self, tokens: &mut TokenGroup, is_origin: bool) -> (usize, Type) {
         if let Some(name) = tokens.is_ident() {
             let name = name.to_string();
             if self.top_var_scope.find_scope_var(name.as_str()) == None && self.find_func(name.as_str()) == None && self.name != name {
@@ -182,15 +184,29 @@ impl<'a> FuncParse<'a> {
 
                 let default_var_index = self.num_of_locals;
                 let typed = Type::type_spec(tokens, self.strucs);
-                let extend_typed = self.top_skill_scope.find_typed(typed);
 
                 // add default variable to var scope
-                self.top_var_scope.new_scope_var(name.clone(), self.num_of_locals, typed);
+                self.top_var_scope.new_scope_var(name.clone(), is_origin, self.num_of_locals, typed);
                 self.num_of_locals += 1;
-                // add extend variable to var scope if Super is expected
-                if let Some(extend_typed) = extend_typed {
-                    self.top_var_scope.extend_scope_var(name, self.num_of_locals, extend_typed);
-                    self.num_of_locals += 1;
+                if is_origin {
+                    // add extend variable to var scope if it's origin and its type is extended in belong skill definition
+                    if let Some(belong) = self.belong {
+                        for (target, extend_index) in &belong.extends {
+                            if typed == *target {
+                                let extend_typed = Type::Struct(*extend_index);
+                                self.top_var_scope.extend_scope_var(name, self.num_of_locals, extend_typed);
+                                self.num_of_locals += 1;
+                                break;
+                            }
+                        }
+                    }
+                } else {
+                    // add extend variable to var scope if its type is extended in skill scope
+                    let extend_typed = self.top_skill_scope.find_typed(typed);
+                    if let Some(extend_typed) = extend_typed {
+                        self.top_var_scope.extend_scope_var(name, self.num_of_locals, extend_typed);
+                        self.num_of_locals += 1;
+                    }
                 }
 
                 return (default_var_index, typed);
@@ -601,7 +617,7 @@ impl<'a> FuncParse<'a> {
             } else {
                 tokens.expected(",");
             }
-            let (index, typed) = self.declarator(tokens);
+            let (index, typed) = self.declarator(tokens, false);
             if tokens.is_equal("=") {
                 let rhs = self.expr(tokens);
                 body.push(Stmt { kind: StmtKind::ExprStmt(Expr::new_assign_node(&tokens.get_previous_token(), Expr::new_storage_node(StorageKind::Var(index), typed), rhs)) });
@@ -632,46 +648,7 @@ pub struct Func {
     pub locals: Vec<Var>,
     pub body: Stmt,
 }
-/*
-impl<'a, 'b, 'c> FuncParse<'a, 'b, 'c> {
-    // func -> "(" (declarator ("," declarator)*)? ")" ":" type_spec "{" block
-    pub fn func(&mut self) -> Func {
-        tokens.expected("(");
 
-        //let mut top_var_scope = VarScope { vars: vec![], child: None };
-        //let mut top_skill_scope = SkillScope { skill: None };
-        //let mut manager = ParsingManager { name: name.clone(), typed: Type::Int(IntType::Int32), skill_scope: &mut skill_scope, top_var_scope: &mut top_var_scope, num_of_locals: 0, locals: vec![], funcs: funcs, strucs: strucs, skills: skills };
-
-        let mut is_first = true;
-
-        while !tokens.is_equal(")") {
-            if is_first {
-                is_first = false;
-            } else {
-                tokens.expected(",");
-            }
-            self.declarator();
-        }
-
-        tokens.expected(":");
-        self.typed = Type::type_spec(tokens, self.strucs);
-
-        tokens.expected("{");
-
-        let body = self.block_stmt();
-    
-        return Func {
-            id: id,
-            name: name,
-            typed: self.typed,
-            num_of_locals: self.num_of_locals,
-            params: self.top_var_scope.vars,
-            locals: self.locals,
-            body: body,
-        }
-    }   
-}
-*/
 impl Func {
     // func -> "(" (declarator ("," declarator)*)? ")" ":" type_spec "{" block
     pub fn new(tokens: &mut TokenGroup, id: usize, name: String, strucs: &Vec<Struct>, funcs: &Vec<Func>, skills: &Vec<Skill>, belong: Option<&Skill>) -> Self {
@@ -700,7 +677,8 @@ impl Func {
             } else {
                 tokens.expected(",");
             }
-            parse.declarator(tokens);
+            let is_origin = tokens.is_equal("origin");
+            parse.declarator(tokens, is_origin);
         }
 
         tokens.expected(":");

@@ -53,7 +53,7 @@ pub struct DefGroup {
     pub funcs: Vec<Func>,
 }
 
-impl<'a> DefGroup {
+impl DefGroup {
 
     fn struc_def(&self, tokens: &mut TokenGroup, skills: &Vec<Skill>) -> Option<Struct> {
         if tokens.is_equal("struct") {
@@ -81,22 +81,6 @@ impl<'a> DefGroup {
                     tokens.previous_token_error(message);
                     std::process::exit(1);
                 }
-/*
-                let mut func_parse = FuncParse {
-                    id: self.num_of_funcs,
-                    name: name,
-                    typed: Type::Int(IntType::Int32),
-                    top_var_scope: VarScope { vars: vec![], child: None },
-                    top_skill_scope: SkillScope { skill: None },
-                    num_of_locals: 0,
-                    locals: vec![],
-
-                    strucs: &self.strucs,
-                    funcs: &self.funcs,
-                    skills: &skills,
-                    belong: belong,
-                };
-*/
                 return Some(Func::new(tokens, self.num_of_funcs, name, &self.strucs, &self.funcs, &skills, belong));
             }
             tokens.current_token_error("identifier is expected".to_string());
@@ -105,7 +89,7 @@ impl<'a> DefGroup {
         return None;
     }
 
-    fn skill_def(&'a mut self, tokens: &mut TokenGroup, skills: &Vec<Skill>) -> Option<Skill> {
+    fn skill_def(&mut self, tokens: &mut TokenGroup, skills: &Vec<Skill>) -> Option<Skill> {
         if tokens.is_equal("skill") {
             if let Some(name) = tokens.is_ident() {
                 if is_exist_name(&self.strucs, &self.funcs, &skills, name) {
